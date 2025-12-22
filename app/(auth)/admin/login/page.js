@@ -161,7 +161,7 @@ export default function AdminLoginPage() {
                 <p className="text-sm text-muted-foreground">
                   Looking for recruiter access?{" "}
                   <Link
-                    href="/login/recruiter"
+                    href="/recruiter/login"
                     className="text-accent hover:underline font-medium"
                   >
                     Go to Recruiter Login

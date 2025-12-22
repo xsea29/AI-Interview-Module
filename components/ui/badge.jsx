@@ -20,6 +20,13 @@ info: "bg-info text-info-foreground",
         destructive:
           "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
         outline: "text-foreground",
+        accent:
+          "bg-accent text-accent-foreground",
+        success:
+          "bg-success text-success-foreground",
+        
+        warning:
+          "bg-warning text-warning-foreground",
       },
     },
     defaultVariants: {

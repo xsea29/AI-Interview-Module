@@ -126,7 +126,7 @@ export default function RecruiterLoginPage() {
 
               <div className="mt-6 text-center text-sm">
                 Admin user?{" "}
-                <Link href="/login/admin" className="text-accent underline">
+                <Link href="/admin/login" className="text-accent underline">
                   Go to Admin Login
                 </Link>
               </div>
