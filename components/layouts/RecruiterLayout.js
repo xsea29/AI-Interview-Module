@@ -98,7 +98,7 @@ const RecruiterLayout = ({ children }) => {
                 <span className="text-sm font-medium text-accent-foreground">JD</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">Jane Doe</p>
+                <p className="text-sm font-medium text-foreground truncate">Sagar Kumar</p>
                 <p className="text-xs text-muted-foreground truncate">HR Manager</p>
               </div>
             </div>

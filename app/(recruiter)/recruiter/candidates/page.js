@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import AddCandidateModal from "@/components/modals/AddCandidateModal";
 
 const candidates = [
   {
@@ -147,6 +148,8 @@ const getStatusBadge = (status) => {
 const Candidates = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [showAddCandidate, setShowAddCandidate] = useState(false);
+
 
   const filteredCandidates = candidates.filter(candidate => {
     if (activeTab !== "all" && candidate.status !== activeTab) return false;
@@ -163,7 +166,7 @@ const Candidates = () => {
             <h1 className="text-3xl font-bold text-foreground">Candidates</h1>
             <p className="text-muted-foreground mt-1">Manage and track all your candidates</p>
           </div>
-          <Button variant="accent">
+          <Button variant="accent" onClick={() => setShowAddCandidate(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Add Candidate
           </Button>
@@ -348,6 +351,8 @@ const Candidates = () => {
           </TabsContent>
         </Tabs>
       </div>
+      <AddCandidateModal open={showAddCandidate} onOpenChange={setShowAddCandidate} />
+
     </RecruiterLayout>
   );
 };
