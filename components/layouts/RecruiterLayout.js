@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -19,6 +20,10 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+
+const API_BASE_URL = "http://localhost:5000/api/v1";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/recruiter/dashboard" },
@@ -32,6 +37,80 @@ const navItems = [
 
 const RecruiterLayout = ({ children }) => {
   const pathname = usePathname();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [user, setUser] = useState(null);
+  // const { user, logout } = useAuth();
+
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  // Get user data from localStorage on component mount
+ useEffect(() => {
+  const userStr = localStorage.getItem('user');
+  if (userStr) {
+    try {
+      setUser(JSON.parse(userStr));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}, []);
+
+
+  const logout = async () => {
+    setIsSigningOut(true);
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        await fetch(`${API_BASE_URL}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear all storage
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('user');
+      
+      // Update state
+      setUser(null);
+      
+      // Redirect to login
+      router.push('/recruiter/login');
+      
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out.",
+      });
+    }
+  };
+
+  // Get user initials
+  const getUserInitials = () => {
+    if (user?.profile?.name) {
+      return user.profile.name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase();
+    }
+    return 'JD';
+  };
+
+  // const handleSignOut = async () => {
+  //   setIsSigningOut(true);
+  //   await logout();
+  //   setIsSigningOut(false);
+  // };
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -95,29 +174,48 @@ const RecruiterLayout = ({ children }) => {
           <div className="p-4 border-t border-border">
             <div className="flex items-center gap-3 mb-3">
               <div className="h-9 w-9 rounded-full gradient-accent flex items-center justify-center">
-                <span className="text-sm font-medium text-accent-foreground">JD</span>
+                <span className="text-sm font-medium text-accent-foreground">
+                  {user?.profile?.name
+                    ?.split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase() || 'JD'}
+                </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">Sagar Kumar</p>
-                <p className="text-xs text-muted-foreground truncate">HR Manager</p>
+                <p className="text-sm font-medium text-foreground truncate">
+                  {user?.profile?.name || 'User'}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {user?.profile?.designation || user?.role || 'Recruiter'}
+                </p>
               </div>
             </div>
-            <Link href="/">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="w-full justify-start text-muted-foreground hover:text-foreground"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign out
-              </Button>
-            </Link>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="w-full justify-start text-muted-foreground hover:text-foreground"
+              onClick={logout}
+              disabled={isSigningOut}
+            >
+              {isSigningOut ? (
+                <>
+                  <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Signing out...
+                </>
+              ) : (
+                <>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign out
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ">
+      <main className="flex-1">
         <div className="p-8">
           {children}
         </div>

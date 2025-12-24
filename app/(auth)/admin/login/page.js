@@ -17,6 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+
+// API Configuration
+const API_BASE_URL = "http://localhost:5000/api/v1";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -26,22 +30,110 @@ export default function AdminLoginPage() {
 
   const router = useRouter();
   const { toast } = useToast();
+  const { login } = useAuth();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulated login
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // Call your backend API
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle specific error messages from backend
+        if (data.message?.includes("Invalid") || data.message?.includes("incorrect")) {
+          throw new Error("Invalid email or password");
+        } else if (data.message?.includes("deactivated") || data.message?.includes("not active")) {
+          throw new Error("Account is deactivated");
+        } else {
+          throw new Error(data.message || "Login failed");
+        }
+      }
+
+      // Check if user is an admin
+      if (data.data.user.role !== "admin") {
+        throw new Error("Access denied. Admin privileges required.");
+      }
+
+      // Store tokens
+      if (data.tokens) {
+        localStorage.setItem("accessToken", data.data.tokens.accessToken);
+        localStorage.setItem("refreshToken", data.data.tokens.refreshToken);
+        sessionStorage.setItem("accessToken", data.data.tokens.accessToken);
+      }
+
+      // Store user data
+      if (data.user) {
+        localStorage.setItem("user", JSON.stringify(data.data.user));
+        sessionStorage.setItem("user", JSON.stringify(data.data.user));
+      }
+
+      // Show success message
       toast({
         title: "Welcome back, Admin",
         description: "You have successfully logged in.",
       });
 
+      // Redirect to admin dashboard
       router.push("/admin/dashboard");
-    }, 1000);
+
+    } catch (error) {
+      console.error("Admin login error:", error);
+      
+      // Show appropriate error message
+      let errorTitle = "Login failed";
+      let errorMessage = error.message || "Please try again.";
+      
+      if (error.message.includes("Invalid email or password")) {
+        errorTitle = "Authentication failed";
+        errorMessage = "Please check your credentials and try again.";
+      } else if (error.message.includes("Account is deactivated")) {
+        errorTitle = "Account deactivated";
+        errorMessage = "Please contact system administrator.";
+      } else if (error.message.includes("Access denied")) {
+        errorTitle = "Access denied";
+        errorMessage = "This portal is for administrators only.";
+      }
+
+      toast({
+        title: errorTitle,
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Demo admin login for testing (remove in production)
+  const handleDemoAdminLogin = () => {
+    setEmail("admin@interviewai.com");
+    setPassword("admin123");
+    
+    // Auto-submit after setting values
+    setTimeout(() => {
+      const submitEvent = new Event("submit", { cancelable: true });
+      const form = document.querySelector("form");
+      if (form) {
+        form.dispatchEvent(submitEvent);
+      }
+    }, 100);
+  };
+
+  // Handle Enter key press
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !isLoading) {
+      handleLogin(e);
+    }
   };
 
   return (
@@ -79,6 +171,30 @@ export default function AdminLoginPage() {
               Manage organizations, configure platform settings, monitor usage
               analytics, and ensure compliance across the entire system.
             </p>
+
+            {/* Admin-specific features */}
+            <div className="mt-8 grid grid-cols-2 gap-4">
+              <div className="p-3 bg-primary-foreground/10 rounded-lg">
+                <p className="text-sm font-medium">Organizations</p>
+                <p className="text-xs opacity-75">Manage all organizations</p>
+              </div>
+              <div className="p-3 bg-primary-foreground/10 rounded-lg">
+                <p className="text-sm font-medium">Analytics</p>
+                <p className="text-xs opacity-75">Platform-wide insights</p>
+              </div>
+            </div>
+
+            {/* Demo login for development */}
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-6">
+                <button
+                  onClick={handleDemoAdminLogin}
+                  className="text-sm underline hover:opacity-80"
+                >
+                  Use Demo Admin Account
+                </button>
+              </div>
+            )}
           </motion.div>
         </div>
       </div>
@@ -90,6 +206,7 @@ export default function AdminLoginPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
+          onKeyPress={handleKeyPress}
         >
           <Link
             href="/"
@@ -102,41 +219,49 @@ export default function AdminLoginPage() {
           <Card className="border-0 shadow-xl">
             <CardHeader className="space-y-1 pb-6">
               <CardTitle className="text-2xl font-bold">
-                Welcome back
+                Admin Authentication
               </CardTitle>
               <CardDescription>
-                Enter your credentials to access the admin dashboard
+                Elevated privileges required for system access
               </CardDescription>
             </CardHeader>
 
             <CardContent>
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Email address</Label>
+                  <Label htmlFor="admin-email">Admin Email</Label>
                   <Input
+                    id="admin-email"
                     type="email"
                     placeholder="admin@company.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={isLoading}
+                    autoComplete="email"
+                    className="focus:ring-2 focus:ring-primary"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Password</Label>
+                  <Label htmlFor="admin-password">Admin Password</Label>
                   <div className="relative">
                     <Input
+                      id="admin-password"
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="pr-10"
+                      disabled={isLoading}
+                      autoComplete="current-password"
+                      className="focus:ring-2 focus:ring-primary pr-10"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      disabled={isLoading}
                     >
                       {showPassword ? (
                         <EyeOff className="h-4 w-4" />
@@ -147,14 +272,39 @@ export default function AdminLoginPage() {
                   </div>
                 </div>
 
+                <div className="text-right">
+                  <Link 
+                    href="/auth/forgot-password" 
+                    className="text-sm text-primary hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+
                 <Button
                   type="submit"
                   variant="hero"
                   className="w-full"
-                  disabled={isLoading}
+                  disabled={isLoading || !email || !password}
                 >
-                  {isLoading ? "Signing in..." : "Sign in to Admin Portal"}
+                  {isLoading ? (
+                    <>
+                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                      Authenticating...
+                    </>
+                  ) : (
+                    "Access Admin Portal"
+                  )}
                 </Button>
+
+                {/* Security notice */}
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-xs text-yellow-800">
+                    <Shield className="h-3 w-3 inline mr-1" />
+                    This portal is restricted to authorized administrators only.
+                    Unauthorized access is prohibited.
+                  </p>
+                </div>
               </form>
 
               <div className="mt-6 pt-6 border-t border-border text-center">
@@ -167,6 +317,14 @@ export default function AdminLoginPage() {
                     Go to Recruiter Login
                   </Link>
                 </p>
+              </div>
+
+              {/* API Status */}
+              <div className="mt-4 text-center">
+                <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className={`h-2 w-2 rounded-full ${isLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`} />
+                  {isLoading ? "Connecting to API..." : `API: localhost:5000`}
+                </div>
               </div>
             </CardContent>
           </Card>

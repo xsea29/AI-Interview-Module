@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -30,6 +31,35 @@ const navItems = [
 
 const AdminLayout = ({ children }) => {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const logout = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+
+    try {
+      const token = localStorage.getItem("accessToken");
+      if (token) {
+        await fetch("http://localhost:5000/api/v1/auth/logout", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+      }
+    } catch (err) {
+      console.error("Logout failed", err);
+    } finally {
+      // Clear storage
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Redirect to admin login
+      router.push("/admin/login");
+    }
+  };
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -92,16 +122,27 @@ const AdminLayout = ({ children }) => {
                 <p className="text-xs text-sidebar-foreground/60 truncate">admin@platform.com</p>
               </div>
             </div>
-            <Link href="/">
+            {/* <Link href="/"> */}
               <Button 
                 variant="ghost" 
                 size="sm" 
+                onClick={logout}
+                disabled={isSigningOut}
                 className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
               >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign out
+                {isSigningOut ? (
+                <>
+                  <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Signing out...
+                </>
+              ) : (
+                <>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign out
+                </>
+              )}
               </Button>
-            </Link>
+            {/* </Link> */}
           </div>
         </div>
       </aside>
