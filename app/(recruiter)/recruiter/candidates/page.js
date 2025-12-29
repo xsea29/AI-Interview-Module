@@ -1,6 +1,6 @@
 "use client";
-
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
   Search, 
@@ -16,7 +16,8 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  ArrowUpRight
+  ArrowUpRight,
+  Loader2
 } from "lucide-react";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,136 +27,283 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/hooks/use-toast";
 import AddCandidateModal from "@/components/modals/AddCandidateModal";
+import CandidateActionsMenu from "@/components/modals/CandidateActionsMenu";
 
-const candidates = [
-  {
-    id: 1,
-    name: "Alex Johnson",
-    email: "alex.johnson@email.com",
-    phone: "+1 (555) 123-4567",
-    location: "San Francisco, CA",
-    role: "Senior Frontend Developer",
-    experience: "6 years",
-    appliedDate: "Dec 15, 2024",
-    status: "interview",
-    stage: "Technical Interview",
-    rating: 4.5,
-    skills: ["React", "TypeScript", "Node.js"],
-    matchScore: 92,
-  },
-  {
-    id: 2,
-    name: "Sarah Chen",
-    email: "sarah.chen@email.com",
-    phone: "+1 (555) 234-5678",
-    location: "New York, NY",
-    role: "Product Manager",
-    experience: "5 years",
-    appliedDate: "Dec 14, 2024",
-    status: "screening",
-    stage: "Resume Review",
-    rating: 4.0,
-    skills: ["Product Strategy", "Agile", "Data Analysis"],
-    matchScore: 85,
-  },
-  {
-    id: 3,
-    name: "Mike Peters",
-    email: "mike.peters@email.com",
-    phone: "+1 (555) 345-6789",
-    location: "Austin, TX",
-    role: "DevOps Engineer",
-    experience: "4 years",
-    appliedDate: "Dec 13, 2024",
-    status: "offer",
-    stage: "Offer Extended",
-    rating: 4.8,
-    skills: ["AWS", "Kubernetes", "Terraform"],
-    matchScore: 95,
-  },
-  {
-    id: 4,
-    name: "Emily Brown",
-    email: "emily.brown@email.com",
-    phone: "+1 (555) 456-7890",
-    location: "Seattle, WA",
-    role: "UX Designer",
-    experience: "3 years",
-    appliedDate: "Dec 12, 2024",
-    status: "new",
-    stage: "Application Received",
-    rating: 0,
-    skills: ["Figma", "User Research", "Prototyping"],
-    matchScore: 78,
-  },
-  {
-    id: 5,
-    name: "David Kim",
-    email: "david.kim@email.com",
-    phone: "+1 (555) 567-8901",
-    location: "Boston, MA",
-    role: "Backend Developer",
-    experience: "7 years",
-    appliedDate: "Dec 11, 2024",
-    status: "rejected",
-    stage: "Not Selected",
-    rating: 3.2,
-    skills: ["Python", "Django", "PostgreSQL"],
-    matchScore: 65,
-  },
-  {
-    id: 6,
-    name: "Lisa Wang",
-    email: "lisa.wang@email.com",
-    phone: "+1 (555) 678-9012",
-    location: "Los Angeles, CA",
-    role: "Data Analyst",
-    experience: "2 years",
-    appliedDate: "Dec 10, 2024",
-    status: "interview",
-    stage: "Final Interview",
-    rating: 4.2,
-    skills: ["SQL", "Python", "Tableau"],
-    matchScore: 88,
-  },
-];
+const API_BASE_URL = "http://localhost:5000/api/v1";
 
-const stats = [
-  { label: "Total Candidates", value: "156", icon: FileText, color: "text-primary", bgColor: "bg-primary/10" },
-  { label: "New This Week", value: "24", icon: Plus, color: "text-success", bgColor: "bg-success/10" },
-  { label: "In Interview", value: "18", icon: Clock, color: "text-warning", bgColor: "bg-warning/10" },
-  { label: "Offers Sent", value: "5", icon: CheckCircle2, color: "text-accent", bgColor: "bg-accent/10" },
-];
+// Status mapping from backend to frontend
+const STATUS_MAP = {
+  'NEW': 'new',
+  'SCREENING': 'screening',
+  'INTERVIEW': 'interview',
+  'OFFER': 'offer',
+  'HIRED': 'hired',
+  'REJECTED': 'rejected',
+  'WITHDRAWN': 'withdrawn'
+};
+
+const STATUS_DISPLAY = {
+  'NEW': 'New',
+  'SCREENING': 'Screening',
+  'INTERVIEW': 'Interview',
+  'OFFER': 'Offer',
+  'HIRED': 'Hired',
+  'REJECTED': 'Rejected',
+  'WITHDRAWN': 'Withdrawn'
+};
 
 const getStatusBadge = (status) => {
-  switch (status) {
-    case "new":
+  const statusKey = status?.toUpperCase();
+  switch (statusKey) {
+    case "NEW":
       return <Badge variant="secondary">New</Badge>;
-    case "screening":
+    case "SCREENING":
       return <Badge variant="info">Screening</Badge>;
-    case "interview":
+    case "INTERVIEW":
       return <Badge variant="warning">Interview</Badge>;
-    case "offer":
-      return <Badge variant="success">Offer</Badge>;
-    case "rejected":
-      return <Badge variant="destructive">Rejected</Badge>;
+    case "OFFER":
+    case "HIRED":
+      return <Badge variant="success">{STATUS_DISPLAY[statusKey]}</Badge>;
+    case "REJECTED":
+    case "WITHDRAWN":
+      return <Badge variant="destructive">{STATUS_DISPLAY[statusKey]}</Badge>;
     default:
-      return <Badge variant="secondary">{status}</Badge>;
+      return <Badge variant="secondary">{status || 'Unknown'}</Badge>;
   }
 };
 
 const Candidates = () => {
+  const router = useRouter();
+  const [candidates, setCandidates] = useState([]);
+  const [filteredCandidates, setFilteredCandidates] = useState([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    newThisWeek: 0,
+    inInterview: 0,
+    offersSent: 0,
+    byStatus: {}
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [showAddCandidate, setShowAddCandidate] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const { toast } = useToast();
+
+  // Fetch candidates and stats
+  useEffect(() => {
+    fetchCandidates();
+    fetchStats();
+  }, []);
+
+  // Filter candidates based on search and tab
+  useEffect(() => {
+    let filtered = candidates;
+
+    // Filter by tab
+    if (activeTab !== "all") {
+      filtered = filtered.filter(candidate => 
+        STATUS_MAP[candidate.status] === activeTab.toLowerCase()
+      );
+    }
+
+    // Filter by search
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(candidate => 
+        candidate.personalInfo.name.toLowerCase().includes(query) ||
+        candidate.personalInfo.email.toLowerCase().includes(query) ||
+        candidate.jobId?.title?.toLowerCase().includes(query)
+      );
+    }
+
+    setFilteredCandidates(filtered);
+  }, [candidates, activeTab, searchQuery]);
+
+  const fetchCandidates = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const response = await fetch(
+        `${API_BASE_URL}/candidates?organizationId=${user.organizationId}&limit=50`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch candidates');
+      }
+
+      const data = await response.json();
+      setCandidates(data?.data?.candidates || []);
+    } catch (err) {
+      console.error('Error fetching candidates:', err);
+      setError(err.message);
+      toast({
+        title: "Error",
+        description: "Failed to load candidates",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const response = await fetch(
+        `${API_BASE_URL}/candidates/stats?organizationId=${user.organizationId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
 
-  const filteredCandidates = candidates.filter(candidate => {
-    if (activeTab !== "all" && candidate.status !== activeTab) return false;
-    if (searchQuery && !candidate.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
+      if (response.ok) {
+        const data = await response.json();
+        setStats({
+          total: data?.data.stats.total || 0,
+          newThisWeek: data?.data.stats.newThisWeek || 0,
+          inInterview: data?.data.stats.byStatus?.interview || 0,
+          offersSent: (data?.data.stats.byStatus?.offer || 0) + (data.data.stats.byStatus?.hired || 0),
+          byStatus: data?.data.stats.byStatus || {}
+        });
+      }
+
+
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+    }
+  };
+
+  const handleAddCandidateSuccess = () => {
+    fetchCandidates();
+    fetchStats();
+    setShowAddCandidate(false);
+    toast({
+      title: "Success",
+      description: "Candidate added successfully",
+    });
+  };
+
+  const handleCandidateAction = async (action, candidateId, data = {}) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      let url = `${API_BASE_URL}/candidates/${candidateId}`;
+      let method = 'PUT';
+      
+      if (action === 'delete') {
+        method = 'DELETE';
+      } else if (action === 'status') {
+        url += '/status';
+        method = 'PATCH';
+      } else if (action === 'note') {
+        url += '/notes';
+        method = 'POST';
+      }
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...data,
+          organizationId: user.organizationId,
+          userId: user._id
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Action failed');
+      }
+
+      // Refresh data
+      fetchCandidates();
+      fetchStats();
+      
+      toast({
+        title: "Success",
+        description: "Action completed successfully",
+      });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const frontendStats = [
+    { 
+      label: "Total Candidates", 
+      value: stats.total.toString(), 
+      icon: FileText, 
+      color: "text-primary", 
+      bgColor: "bg-primary/10" 
+    },
+    { 
+      label: "New This Week", 
+      value: stats.newThisWeek.toString(), 
+      icon: Plus, 
+      color: "text-success", 
+      bgColor: "bg-success/10" 
+    },
+    { 
+      label: "In Interview", 
+      value: stats.inInterview.toString(), 
+      icon: Clock, 
+      color: "text-warning", 
+      bgColor: "bg-warning/10" 
+    },
+    { 
+      label: "Offers Sent", 
+      value: stats.offersSent.toString(), 
+      icon: CheckCircle2, 
+      color: "text-accent", 
+      bgColor: "bg-accent/10" 
+    },
+  ];
+
+  // Calculate tab counts
+  const tabCounts = {
+    all: candidates.length,
+    new: stats.byStatus?.NEW || 0,
+    screening: stats.byStatus?.SCREENING || 0,
+    interview: stats.byStatus?.INTERVIEW || 0,
+    offer: (stats.byStatus?.OFFER || 0) + (stats.byStatus?.HIRED || 0),
+    rejected: stats.byStatus?.REJECTED || 0,
+  };
+
+  if (loading && candidates.length === 0) {
+    return (
+      <RecruiterLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+          <span className="ml-2">Loading candidates...</span>
+        </div>
+      </RecruiterLayout>
+    );
+  }
 
   return (
     <RecruiterLayout>
@@ -174,7 +322,7 @@ const Candidates = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat, index) => (
+          {frontendStats.map((stat, index) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, y: 20 }}
@@ -205,7 +353,7 @@ const Candidates = () => {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
-                  placeholder="Search candidates..." 
+                  placeholder="Search candidates by name, email, or role..." 
                   className="pl-10"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -217,6 +365,7 @@ const Candidates = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all-roles">All Roles</SelectItem>
+                  {/* This would be populated from your jobs API */}
                   <SelectItem value="frontend">Frontend Developer</SelectItem>
                   <SelectItem value="backend">Backend Developer</SelectItem>
                   <SelectItem value="pm">Product Manager</SelectItem>
@@ -234,125 +383,191 @@ const Candidates = () => {
         {/* Tabs and Candidate List */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
-            <TabsTrigger value="all">All ({candidates.length})</TabsTrigger>
-            <TabsTrigger value="new">New ({candidates.filter(c => c.status === "new").length})</TabsTrigger>
-            <TabsTrigger value="interview">Interview ({candidates.filter(c => c.status === "interview").length})</TabsTrigger>
-            <TabsTrigger value="offer">Offer ({candidates.filter(c => c.status === "offer").length})</TabsTrigger>
-            <TabsTrigger value="rejected">Rejected ({candidates.filter(c => c.status === "rejected").length})</TabsTrigger>
+            <TabsTrigger value="all">All ({tabCounts.all})</TabsTrigger>
+            <TabsTrigger value="new">New ({tabCounts.new})</TabsTrigger>
+            <TabsTrigger value="screening">Screening ({tabCounts.screening})</TabsTrigger>
+            <TabsTrigger value="interview">Interview ({tabCounts.interview})</TabsTrigger>
+            <TabsTrigger value="offer">Offer ({tabCounts.offer})</TabsTrigger>
+            <TabsTrigger value="rejected">Rejected ({tabCounts.rejected})</TabsTrigger>
           </TabsList>
 
           <TabsContent value={activeTab} className="mt-6">
-            <div className="space-y-4">
-              {filteredCandidates.map((candidate, index) => (
-                <motion.div
-                  key={candidate.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-accent mr-2" />
+                <span>Loading candidates...</span>
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <p className="text-destructive">Error: {error}</p>
+                <Button 
+                  variant="outline" 
+                  onClick={fetchCandidates}
+                  className="mt-4"
                 >
-                  <Card variant="interactive">
-                    <CardContent className="p-6">
-                      <div className="flex items-start gap-6">
-                        {/* Avatar */}
-                        <div className="h-14 w-14 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
-                          <span className="text-xl font-semibold text-accent">
-                            {candidate.name.split(' ').map(n => n[0]).join('')}
-                          </span>
-                        </div>
-
-                        {/* Main Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="flex items-center gap-3">
-                                <h3 className="text-lg font-semibold text-foreground">{candidate.name}</h3>
-                                {getStatusBadge(candidate.status)}
-                              </div>
-                              <p className="text-muted-foreground mt-1">{candidate.role}</p>
-                            </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <Button variant="outline" size="sm">
-                                <Mail className="h-4 w-4" />
-                              </Button>
-                              <Button variant="outline" size="sm">
-                                <FileText className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </div>
+                  Retry
+                </Button>
+              </div>
+            ) : filteredCandidates.length === 0 ? (
+              <div className="text-center py-12 border rounded-lg">
+                <p className="text-muted-foreground">No candidates found</p>
+                <Button 
+                  variant="accent" 
+                  onClick={() => setShowAddCandidate(true)}
+                  className="mt-4"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add First Candidate
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredCandidates.map((candidate, index) => (
+                  <motion.div
+                    key={candidate._id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <Card variant="interactive">
+                      <CardContent className="p-6">
+                        <div className="flex items-start gap-6">
+                          {/* Avatar */}
+                          <div className="h-14 w-14 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
+                            <span className="text-xl font-semibold text-accent">
+                              {candidate.personalInfo.name.split(' ').map(n => n[0]).join('')}
+                            </span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Mail className="h-4 w-4" />
-                              <span>{candidate.email}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <MapPin className="h-4 w-4" />
-                              <span>{candidate.location}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              <span>Applied {candidate.appliedDate}</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-6 mt-4">
-                            {/* Skills */}
-                            <div className="flex items-center gap-2">
-                              {candidate.skills.map((skill) => (
-                                <Badge key={skill} variant="secondary" className="text-xs">
-                                  {skill}
-                                </Badge>
-                              ))}
-                            </div>
-
-                            {/* Match Score */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-muted-foreground">Match:</span>
-                              <div className="w-24">
-                                <Progress value={candidate.matchScore} className="h-2" />
+                          {/* Main Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="flex items-center gap-3">
+                                  <h3 className="text-lg font-semibold text-foreground">
+                                    {candidate.personalInfo.name}
+                                  </h3>
+                                  {getStatusBadge(candidate.status)}
+                                </div>
+                                <p className="text-muted-foreground mt-1">
+                                  {candidate.jobId?.title || 'No role specified'}
+                                </p>
                               </div>
-                              <span className="text-sm font-medium text-foreground">{candidate.matchScore}%</span>
+                              
+                              <div className="flex items-center gap-2">
+  <Button variant="outline" size="sm">
+    <Mail className="h-4 w-4" />
+  </Button>
+  <Button variant="outline" size="sm">
+    <FileText className="h-4 w-4" />
+  </Button>
+  <CandidateActionsMenu
+    candidateId={candidate._id}
+    candidateName={candidate.personalInfo.name}
+    status={candidate.status}
+    jobId={candidate.jobId?._id}
+    onSuccess={() => {
+      fetchCandidates();
+      fetchStats();
+    }}
+  />
+</div>
                             </div>
 
-                            {/* Rating */}
-                            {candidate.rating > 0 && (
+                            <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
                               <div className="flex items-center gap-1">
-                                <Star className="h-4 w-4 text-warning fill-warning" />
-                                <span className="text-sm font-medium text-foreground">{candidate.rating}</span>
+                                <Mail className="h-4 w-4" />
+                                <span>{candidate.personalInfo.email}</span>
+                              </div>
+                              {candidate.personalInfo.phone && (
+                                <div className="flex items-center gap-1">
+                                  <Phone className="h-4 w-4" />
+                                  <span>{candidate.personalInfo.phone}</span>
+                                </div>
+                              )}
+                              {candidate.personalInfo.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="h-4 w-4" />
+                                  <span>{candidate.personalInfo.location}</span>
+                                </div>
+                              )}
+                              {candidate.appliedAt && (
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>Applied {new Date(candidate.appliedAt).toLocaleDateString()}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {candidate.skills && candidate.skills.length > 0 && (
+                              <div className="flex items-center gap-2 mt-4">
+                                {candidate.skills.slice(0, 3).map((skill) => (
+                                  <Badge key={skill} variant="secondary" className="text-xs">
+                                    {skill}
+                                  </Badge>
+                                ))}
+                                {candidate.skills.length > 3 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{candidate.skills.length - 3} more
+                                  </Badge>
+                                )}
                               </div>
                             )}
-                          </div>
 
-                          {/* Current Stage */}
-                          <div className="mt-4 pt-4 border-t border-border">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Clock className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm text-muted-foreground">Current Stage:</span>
-                                <span className="text-sm font-medium text-foreground">{candidate.stage}</span>
+                            <div className="flex items-center gap-6 mt-4">
+                              {/* Match Score */}
+                              {candidate.matchScore && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-muted-foreground">Match:</span>
+                                  <div className="w-24">
+                                    <Progress value={candidate.matchScore} className="h-2" />
+                                  </div>
+                                  <span className="text-sm font-medium text-foreground">{candidate.matchScore}%</span>
+                                </div>
+                              )}
+
+                              {/* Rating */}
+                              {candidate.rating > 0 && (
+                                <div className="flex items-center gap-1">
+                                  <Star className="h-4 w-4 text-warning fill-warning" />
+                                  <span className="text-sm font-medium text-foreground">{candidate.rating}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Current Stage */}
+                            <div className="mt-4 pt-4 border-t border-border">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm text-muted-foreground">Current Stage:</span>
+                                  <span className="text-sm font-medium text-foreground">
+                                    {candidate.currentStage || 'Application Received'}
+                                  </span>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={() => router.push(`/recruiter/candidates/${candidate._id}`)}>
+                                  View Profile
+                                  <ArrowUpRight className="h-4 w-4 ml-1" />
+                                </Button>
                               </div>
-                              <Button variant="ghost" size="sm">
-                                View Profile
-                                <ArrowUpRight className="h-4 w-4 ml-1" />
-                              </Button>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
-            </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>
-      <AddCandidateModal open={showAddCandidate} onOpenChange={setShowAddCandidate} />
 
+      <AddCandidateModal 
+        open={showAddCandidate} 
+        onOpenChange={setShowAddCandidate}
+        onSuccess={handleAddCandidateSuccess}
+      />
     </RecruiterLayout>
   );
 };
