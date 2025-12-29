@@ -69,7 +69,7 @@ export default function RecruiterLoginPage() {
       }
 
       // Store tokens
-      if (data.tokens) {
+      if (data?.data?.tokens?.accessToken) {
         localStorage.setItem("accessToken", data.data.tokens.accessToken);
         localStorage.setItem("refreshToken", data.data.tokens.refreshToken);
         
