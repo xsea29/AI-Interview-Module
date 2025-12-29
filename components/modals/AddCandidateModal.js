@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { User, Upload, Link2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { User, Upload, Link2, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,44 +15,306 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
-const AddCandidateModal = ({ open, onOpenChange }) => {
+
+const API_BASE_URL = "http://localhost:5000/api/v1";
+
+const AddCandidateModal = ({ open, onOpenChange, onSuccess }) => {
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [jobs, setJobs] = useState([]);
   const [formData, setFormData] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-    location: "",
-    job: "",
-    source: "",
+    jobId: "",
+    personalInfo: {
+      name: "",
+      email: "",
+      phone: "",
+      location: "",
+    },
+    source: "career_site",
     linkedinUrl: "",
     resume: null,
+    notes: "",
   });
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFormData({ ...formData, resume: e.target.files[0] });
+  // Fetch jobs when modal opens
+  useEffect(() => {
+    if (open) {
+      fetchJobs();
+      resetForm();
+    }
+  }, [open]);
+
+  const fetchJobs = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const response = await fetch(
+        `${API_BASE_URL}/jobs?organizationId=${user.organizationId}&status=active`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setJobs(data.data.jobs || []);
+      }
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load jobs. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleSubmit = () => {
-    if (!formData.fullName || !formData.email || !formData.job) {
+  const resetForm = () => {
+    setFormData({
+      jobId: "",
+      personalInfo: {
+        name: "",
+        email: "",
+        phone: "",
+        location: "",
+      },
+      source: "career_site",
+      linkedinUrl: "",
+      resume: null,
+      notes: "",
+    });
+  };
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Supported file types
+      const supportedTypes = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+        "application/msword" // .doc
+      ];
+      
+      const fileExt = file.name.toLowerCase().split('.').pop();
+      const isValidType = supportedTypes.includes(file.type) || 
+                          ['pdf', 'docx', 'doc'].includes(fileExt);
+      
+      if (!isValidType) {
+        toast({
+          title: "Invalid file type",
+          description: "Please upload a PDF, DOCX, or DOC file.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        toast({
+          title: "File too large",
+          description: "Please upload a file smaller than 10MB.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setFormData({ ...formData, resume: file });
+    }
+  };
+
+  const handleSubmit = async () => {
+    // Validate required fields
+    if (!formData.personalInfo.name.trim()) {
       toast({
-        title: "Missing Required Fields",
-        description: "Please fill in all required fields.",
+        title: "Missing Required Field",
+        description: "Please enter candidate name.",
         variant: "destructive",
       });
       return;
     }
 
-    toast({
-      title: "Candidate Added Successfully",
-      description: `${formData.fullName} has been added to the system.`,
+    if (!formData.personalInfo.email.trim()) {
+      toast({
+        title: "Missing Required Field",
+        description: "Please enter candidate email.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formData.jobId) {
+      toast({
+        title: "Missing Required Field",
+        description: "Please select a job position.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.personalInfo.email)) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+      // Prepare form data for API
+      const candidateData = {
+        jobId: formData.jobId,
+        personalInfo: {
+          name: formData.personalInfo.name.trim(),
+          email: formData.personalInfo.email.toLowerCase().trim(),
+          phone: formData.personalInfo.phone?.trim() || undefined,
+          location: formData.personalInfo.location?.trim() || undefined,
+        },
+        source: formData.source,
+        notes: formData.notes?.trim() || undefined,
+        // Include default resume structure to satisfy backend schema
+        resume: {
+          rawText: null,
+          parsedData: {},
+          uploadedAt: new Date().toISOString(),
+        },
+      };
+
+      // If LinkedIn URL is provided, add it to personalInfo
+      if (formData.linkedinUrl.trim()) {
+        candidateData.personalInfo.linkedin = formData.linkedinUrl.trim();
+      }
+
+      const response = await fetch(`${API_BASE_URL}/candidates`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...candidateData,
+          organizationId: user.organizationId,
+        }),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Failed to add candidate');
+      }
+
+      // Handle resume upload if exists
+      if (formData.resume && responseData?.data.candidate?._id) {
+        await uploadResume(responseData?.data?.candidate._id, formData.resume);
+      }
+
+      toast({
+        title: "Success!",
+        description: `${formData.personalInfo.name} has been added successfully.`,
+      });
+
+      // Call success callback
+      if (onSuccess) {
+        onSuccess();
+      }
+
+      // Close modal and reset form
+      onOpenChange(false);
+      resetForm();
+
+    } catch (error) {
+      console.error('Error adding candidate:', error);
+      
+      let errorMessage = error.message;
+      if (error.message.includes('already exists')) {
+        errorMessage = "A candidate with this email already exists for the selected job.";
+      } else if (error.message.includes('Job not found')) {
+        errorMessage = "The selected job is no longer available.";
+      }
+
+      toast({
+        title: "Failed to Add Candidate",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const uploadResume = async (candidateId, resumeFile) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const formDataToSend = new FormData();
+      formDataToSend.append('resume', resumeFile);
+
+      const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToSend,
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        const errorMessage = responseData?.message || responseData?.errors?.[0]?.message || 'Failed to upload resume';
+        console.warn('Resume upload failed:', errorMessage);
+        
+        // Show warning toast but don't fail the whole operation
+        toast({
+          title: "Resume Upload Warning",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Success - show optional success message
+      if (responseData?.data?.parsedData) {
+        toast({
+          title: "Resume Parsed Successfully",
+          description: "Resume data has been extracted and analyzed.",
+        });
+      }
+    } catch (error) {
+      console.warn('Error uploading resume:', error.message);
+      // Don't fail the whole operation if resume upload fails
+      toast({
+        title: "Resume Processing Note",
+        description: "Candidate created, but resume processing encountered an issue.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const updatePersonalInfo = (field, value) => {
+    setFormData({
+      ...formData,
+      personalInfo: {
+        ...formData.personalInfo,
+        [field]: value,
+      },
     });
-    onOpenChange(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!loading) {
+        onOpenChange(isOpen);
+      }
+    }}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
           <DialogTitle className="flex items-center gap-2">
@@ -75,9 +337,10 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                 <Label htmlFor="fullName">Full Name *</Label>
                 <Input
                   id="fullName"
-                  placeholder="e.g., Tushar Singh"
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  placeholder="e.g., John Doe"
+                  value={formData.personalInfo.name}
+                  onChange={(e) => updatePersonalInfo('name', e.target.value)}
+                  disabled={loading}
                 />
               </div>
 
@@ -87,9 +350,10 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="tushar@email.com"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    placeholder="john@example.com"
+                    value={formData.personalInfo.email}
+                    onChange={(e) => updatePersonalInfo('email', e.target.value)}
+                    disabled={loading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -97,9 +361,10 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                   <Input
                     id="phone"
                     type="tel"
-                    placeholder="+91 1234567890"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="+1 (555) 123-4567"
+                    value={formData.personalInfo.phone}
+                    onChange={(e) => updatePersonalInfo('phone', e.target.value)}
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -108,9 +373,10 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                 <Label htmlFor="location">Location</Label>
                 <Input
                   id="location"
-                  placeholder="e.g., Bengaluru, India"
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g., San Francisco, CA"
+                  value={formData.personalInfo.location}
+                  onChange={(e) => updatePersonalInfo('location', e.target.value)}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -122,20 +388,30 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
               <div className="space-y-2">
                 <Label>Select Job *</Label>
                 <Select
-                  value={formData.job}
-                  onValueChange={(value) => setFormData({ ...formData, job: value })}
+                  value={formData.jobId}
+                  onValueChange={(value) => setFormData({ ...formData, jobId: value })}
+                  disabled={loading || jobs.length === 0}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a job position" />
+                    <SelectValue placeholder={jobs.length === 0 ? "Loading jobs..." : "Select a job position"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="senior-frontend">Senior Frontend Developer</SelectItem>
-                    <SelectItem value="product-manager">Product Manager</SelectItem>
-                    <SelectItem value="devops-engineer">DevOps Engineer</SelectItem>
-                    <SelectItem value="ux-designer">UX Designer</SelectItem>
-                    <SelectItem value="data-analyst">Data Analyst</SelectItem>
+                    {jobs.length === 0 ? (
+                      <SelectItem value="loading" disabled>No active jobs available</SelectItem>
+                    ) : (
+                      jobs.map((job) => (
+                        <SelectItem key={job._id} value={job._id}>
+                          {job.title} - {job.department || 'No Department'}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
+                {jobs.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No active jobs found. Please create a job first.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -143,18 +419,30 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                 <Select
                   value={formData.source}
                   onValueChange={(value) => setFormData({ ...formData, source: value })}
+                  disabled={loading}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="How did they apply?" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="career_site">Career Site</SelectItem>
                     <SelectItem value="linkedin">LinkedIn</SelectItem>
-                    <SelectItem value="portal">Job Portal</SelectItem>
-                    <SelectItem value="direct">Direct Application</SelectItem>
-                    <SelectItem value="agency">Agency</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="indeed">Indeed</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Input
+                  id="notes"
+                  placeholder="Any additional notes about this candidate..."
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  disabled={loading}
+                />
               </div>
             </div>
 
@@ -163,21 +451,28 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
               <h3 className="text-sm font-medium text-foreground">Resume & Links</h3>
 
               <div className="space-y-2">
-                <Label>Upload Resume (PDF)</Label>
-                <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-accent/50 transition-colors">
+                <Label>Upload Resume (PDF, DOCX, DOC - Optional)</Label>
+                <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  loading ? 'border-muted bg-muted/50 cursor-not-allowed' : 'border-border hover:border-accent/50 cursor-pointer'
+                }`}>
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                     onChange={handleFileChange}
                     className="hidden"
                     id="resume-upload"
+                    disabled={loading}
                   />
-                  <label htmlFor="resume-upload" className="cursor-pointer block">
+                  <label htmlFor="resume-upload" className={`block ${loading ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-sm text-muted-foreground">
-                      {formData.resume ? formData.resume.name : "Click to upload or drag and drop"}
+                      {formData.resume 
+                        ? formData.resume.name 
+                        : loading 
+                          ? "Processing..." 
+                          : "Click to upload or drag and drop"}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">PDF up to 10MB</p>
+                    <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, or DOC up to 10MB</p>
                   </label>
                 </div>
               </div>
@@ -192,6 +487,7 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
                     className="pl-10"
                     value={formData.linkedinUrl}
                     onChange={(e) => setFormData({ ...formData, linkedinUrl: e.target.value })}
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -202,11 +498,26 @@ const AddCandidateModal = ({ open, onOpenChange }) => {
         {/* Footer with buttons - fixed at bottom */}
         <div className="px-6 py-4 border-t border-border bg-card shrink-0">
           <div className="flex items-center justify-end gap-3">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
               Cancel
             </Button>
-            <Button variant="accent" onClick={handleSubmit}>
-              Add Candidate
+            <Button 
+              variant="accent" 
+              onClick={handleSubmit}
+              disabled={loading || !formData.personalInfo.name || !formData.personalInfo.email || !formData.jobId}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                'Add Candidate'
+              )}
             </Button>
           </div>
         </div>
