@@ -45,6 +45,7 @@ export default function InterviewLandingPage({ params }) {
 
         // Check if we already have a valid session token
         const existingSessionToken = sessionTokenUtils.get();
+        
         if (existingSessionToken) {
           // Verify session token is still valid
           try {
@@ -78,7 +79,32 @@ export default function InterviewLandingPage({ params }) {
           setMaskedEmail(maskEmail(validateResult.data.candidateEmail));
         }
 
-        setPhase("emailVerification");
+        // Check if email is already verified
+        
+        if (validateResult.data.emailVerified) {
+          // Email already verified, try to generate session token
+          setPhase("generatingSession");
+          try {
+            const sessionResult = await publicFetch(`/interviews/public/create-session/${interviewToken}`, {
+              method: "POST"
+            });
+
+            if (sessionResult.success && sessionResult.data.sessionToken) {
+              sessionTokenUtils.set(sessionResult.data.sessionToken);
+              setSessionToken(sessionResult.data.sessionToken);
+              setPhase("ready");
+              await loadInterviewDetails();
+              return;
+            }
+          } catch (err) {
+            // If session creation fails, fall back to email verification
+            console.error("Session creation failed, showing email verification:", err);
+            setPhase("emailVerification");
+          }
+        } else {
+          setPhase("emailVerification");
+        }
+
         setError(null);
       } catch (err) {
         console.error("Error validating token:", err);
@@ -157,13 +183,30 @@ export default function InterviewLandingPage({ params }) {
       });
 
       if (!result.success) {
+        // Check if email is already verified
+        if (result.message?.includes("already verified")) {
+          // Email was already verified, proceed to session creation
+          await generateSessionToken();
+          return;
+        }
         throw new Error(result.message || "Invalid OTP");
       }
 
       // Generate session token
       await generateSessionToken();
     } catch (err) {
-      setError(err.message || "Invalid OTP. Please try again.");
+      // Handle specific case where email is already verified
+      if (err.message?.includes("already verified")) {
+        // Try to generate session token directly
+        try {
+          await generateSessionToken();
+          return;
+        } catch (sessionErr) {
+          setError(sessionErr.message || "Failed to proceed. Please try again.");
+        }
+      } else {
+        setError(err.message || "Invalid OTP. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -186,13 +229,30 @@ export default function InterviewLandingPage({ params }) {
       });
 
       if (!result.success) {
+        // Check if email is already verified
+        if (result.message?.includes("already verified")) {
+          // Email was already verified, proceed to session creation
+          await generateSessionToken();
+          return;
+        }
         throw new Error(result.message || "Email does not match");
       }
 
       // Generate session token
       await generateSessionToken();
     } catch (err) {
-      setError(err.message || "Email does not match. Please try again.");
+      // Handle specific case where email is already verified
+      if (err.message?.includes("already verified")) {
+        // Try to generate session token directly
+        try {
+          await generateSessionToken();
+          return;
+        } catch (sessionErr) {
+          setError(sessionErr.message || "Failed to proceed. Please try again.");
+        }
+      } else {
+        setError(err.message || "Email does not match. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
