@@ -667,66 +667,121 @@ useEffect(() => {
     setQuestions([...questions, newQuestion]);
   };
   
+  // const handleUpdateQuestions = async () => {
+  //   if (!interviewId) {
+  //     toast({
+  //       title: "Error",
+  //       description: "Please generate questions first",
+  //       variant: "destructive",
+  //     });
+  //     return;
+  //   }
+    
+  //   setIsLoading(true);
+  //   try {
+  //     const token = localStorage.getItem('accessToken');
+  //     const response = await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}/questions`, {
+  //       method: 'PUT',
+  //       headers: {
+  //         'Authorization': `Bearer ${token}`,
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  // questions: questions.map((q, index) => ({
+  //   _id: q._id,
+  //   text: {
+  //     value: q.question?.text || q.text
+  //   },
+  //   category: {
+  //     value: q.question?.category || q.type
+  //   },
+  //   skill: {
+  //     value: q.question?.skill || q.skill
+  //   },
+  //   difficulty: {
+  //     value: q.question?.difficulty || q.difficulty
+  //   },
+  //   isApproved: q.isApproved,
+  //   order: index,
+  // }))
+  //       }),
+  //     });
+      
+  //     if (!response.ok) {
+  //       const error = await response.json();
+  //       throw new Error(error.message || 'Failed to update questions');
+  //     }
+      
+  //     toast({
+  //       title: "Questions Updated",
+  //       description: "Questions have been updated successfully",
+  //     });
+  //   } catch (error) {
+  //     toast({
+  //       title: "Error",
+  //       description: error.message,
+  //       variant: "destructive",
+  //     });
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
+  
   const handleUpdateQuestions = async () => {
-    if (!interviewId) {
-      toast({
-        title: "Error",
-        description: "Please generate questions first",
-        variant: "destructive",
-      });
-      return;
+  if (!interviewId) {
+    toast({
+      title: "Error",
+      description: "Please generate questions first",
+      variant: "destructive",
+    });
+    return;
+  }
+  
+  setIsLoading(true);
+  try {
+    const token = localStorage.getItem('accessToken');
+    
+    // MINIMAL CHANGE: Send strings directly, not objects
+    const formattedQuestions = questions.map((q, index) => ({
+      _id: q._id,
+      text: q.question?.text || q.text || "", // Direct string
+      category: q.question?.category || q.type || "technical", // Direct string
+      skill: q.question?.skill || q.skill || "general", // Direct string
+      difficulty: q.question?.difficulty || q.difficulty || "medium", // Direct string
+      isApproved: q.isApproved || false,
+      order: index,
+    }));
+
+    const response = await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}/questions`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        questions: formattedQuestions
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to update questions');
     }
     
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem('accessToken');
-      const response = await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}/questions`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-  questions: questions.map((q, index) => ({
-    _id: q._id,
-    text: {
-      value: q.question?.text || q.text
-    },
-    category: {
-      value: q.question?.category || q.type
-    },
-    skill: {
-      value: q.question?.skill || q.skill
-    },
-    difficulty: {
-      value: q.question?.difficulty || q.difficulty
-    },
-    isApproved: q.isApproved,
-    order: index,
-  }))
-        }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to update questions');
-      }
-      
-      toast({
-        title: "Questions Updated",
-        description: "Questions have been updated successfully",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
+    toast({
+      title: "Questions Updated",
+      description: "Questions have been updated successfully",
+    });
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
+  } finally {
+    setIsLoading(false);
+  }
+};
   
   const handleMarkAsReady = async () => {
     if (!interviewId) {
