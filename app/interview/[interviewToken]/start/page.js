@@ -28,6 +28,7 @@ import {
   Bot,
   User,
   Loader2,
+  Volume2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { publicFetch, sessionTokenUtils } from "@/lib/public-api";
@@ -42,6 +43,7 @@ export default function InterviewStartPage({ params }) {
   const [stream, setStream] = useState(null);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [showEndDialog, setShowEndDialog] = useState(false);
 
   // Interview state
@@ -94,6 +96,40 @@ export default function InterviewStartPage({ params }) {
   useEffect(() => {
     if (stream && videoRef.current && !videoRef.current.srcObject) {
       videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  // Audio level monitoring
+  useEffect(() => {
+    if (!stream) return;
+
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const microphone = audioContext.createMediaStreamSource(stream);
+      microphone.connect(analyser);
+      analyser.fftSize = 256;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      const updateLevel = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        setAudioLevel(Math.min(100, average * 2));
+        requestAnimationFrame(updateLevel);
+      };
+      
+      updateLevel();
+
+      return () => {
+        try {
+          audioContext.close();
+        } catch (e) {
+          console.error("Error closing audio context:", e);
+        }
+      };
+    } catch (error) {
+      console.error("Audio context error:", error);
     }
   }, [stream]);
 
@@ -440,6 +476,25 @@ export default function InterviewStartPage({ params }) {
               )}
             </Button>
           </div>
+
+          {/* Audio Level Indicator */}
+          {isMicOn && (
+            <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Volume2 className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-medium text-gray-700">Microphone Level</span>
+              </div>
+              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-blue-600 transition-all duration-100"
+                  style={{ width: `${audioLevel}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {audioLevel > 70 ? "Good" : audioLevel > 40 ? "Moderate" : "Low"}
+              </p>
+            </div>
+          )}
 
           {/* Progress */}
           <div className="mb-4">
