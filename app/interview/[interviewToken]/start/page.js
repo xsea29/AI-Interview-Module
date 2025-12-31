@@ -66,7 +66,10 @@ export default function InterviewStartPage({ params }) {
 
     return () => {
       if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+        stream.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
       }
     };
   }, []);
@@ -295,9 +298,19 @@ export default function InterviewStartPage({ params }) {
   };
 
   const handleInterviewEnd = async () => {
+    // Stop and cleanup media stream
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach((track) => {
+        track.stop();
+        track.enabled = false;
+      });
+      setStream(null);
     }
+
+    // Reset media state
+    setIsMicOn(true);
+    setIsCameraOn(true);
+    setAudioLevel(0);
 
     const sessionToken = sessionTokenUtils.get();
 
