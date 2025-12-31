@@ -301,8 +301,8 @@ export default function InterviewLandingPage({ params }) {
         throw new Error("Failed to start interview");
       }
 
-      // Navigate to interview screen
-      router.push(`/interview/${interviewToken}/start`);
+      // Navigate to pre-interview setup
+      router.push(`/interview/${interviewToken}/setup`);
     } catch (err) {
       setError(err.message || "Failed to start interview");
       setIsLoading(false);
