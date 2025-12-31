@@ -75,7 +75,7 @@ export default function InterviewStartPage({ params }) {
         throw new Error(questionsResult.message || "Failed to load questions");
       }
 
-      setQuestions(questionsResult.data?.questions || []);
+      setQuestions(questionsResult.data?.data?.questions || []);
       setError(null);
     } catch (err) {
       console.error("Error loading interview:", err);
@@ -245,7 +245,7 @@ export default function InterviewStartPage({ params }) {
               </div>
               <div>
                 <h1 className="font-semibold text-gray-900">
-                  {interviewDetails?.job?.title || "Interview"}
+                  Interview
                 </h1>
                 <p className="text-xs text-gray-500">
                   Question {currentQuestionIndex + 1} of {questions.length}
