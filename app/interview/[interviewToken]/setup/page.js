@@ -21,6 +21,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { publicFetch, sessionTokenUtils } from "@/lib/public-api";
 
 const PreInterviewSetup = ({ params }) => {
   const router = useRouter();
@@ -140,7 +141,7 @@ const PreInterviewSetup = ({ params }) => {
     }
   };
 
-  const handleJoinInterview = () => {
+  const handleJoinInterview = async () => {
     if (!canProceed) {
       toast({
         title: "Cannot Proceed",
@@ -154,6 +155,44 @@ const PreInterviewSetup = ({ params }) => {
       title: "Joining Interview",
       description: "Preparing your interview session...",
     });
+
+    const sessionToken = sessionTokenUtils.get();
+
+    try {
+      // Update backend that pre-check is completed
+      const cameraCheck = systemChecks.find(c => c.id === "camera")?.status === "passed";
+      const micCheck = systemChecks.find(c => c.id === "microphone")?.status === "passed";
+      
+      await publicFetch(
+        `/interviews/public/precheck/${interviewToken}?sessionToken=${encodeURIComponent(
+          sessionToken
+        )}`,
+        {
+          method: "POST",
+          headers: {
+            "X-Interview-Session": sessionToken,
+          },
+          body: JSON.stringify({
+            cameraCheck,
+            micCheck,
+            environmentConfirmed: quietEnvironment && stableInternet && properLighting && noAssistance,
+            consentGiven: acceptRecording,
+            systemChecks: {
+              camera: systemChecks.find(c => c.id === "camera")?.status || "pending",
+              microphone: systemChecks.find(c => c.id === "microphone")?.status || "pending",
+              network: systemChecks.find(c => c.id === "network")?.status || "pending",
+            },
+          }),
+        }
+      );
+    } catch (error) {
+      console.error("Error updating pre-check status:", error);
+      toast({
+        title: "Warning",
+        description: "Could not update status, but you can continue.",
+        variant: "destructive",
+      });
+    }
     
     // Stop the preview stream before navigating
     if (stream) {

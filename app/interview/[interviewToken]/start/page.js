@@ -90,6 +90,13 @@ export default function InterviewStartPage({ params }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Ensure video stream is attached to video element
+  useEffect(() => {
+    if (stream && videoRef.current && !videoRef.current.srcObject) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   const loadQuestions = async () => {
     const sessionToken = sessionTokenUtils.get();
 
@@ -144,14 +151,20 @@ export default function InterviewStartPage({ params }) {
   const initializeMedia = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
       });
       setStream(mediaStream);
+      
+      // Ensure video ref is available before setting stream
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().catch(err => console.error("Play error:", err));
+        };
       }
     } catch (error) {
+      console.error("Media error:", error);
       toast({
         title: "Media Error",
         description: "Could not access camera/microphone. Please check permissions.",
