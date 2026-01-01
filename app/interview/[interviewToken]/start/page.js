@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,12 +32,15 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { publicFetch, sessionTokenUtils } from "@/lib/public-api";
+import InterviewMonitoring from "@/lib/monitoring";
+import AudioInterviewPage from "./audio-interview";
 
 export default function InterviewStartPage({ params }) {
   const router = useRouter();
   const { interviewToken } = params;
   const { toast } = useToast();
   const videoRef = useRef(null);
+  const monitoringRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   const [stream, setStream] = useState(null);
@@ -45,6 +48,8 @@ export default function InterviewStartPage({ params }) {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
   const [showEndDialog, setShowEndDialog] = useState(false);
+  const [interviewType, setInterviewType] = useState(null);
+  const [typeLoading, setTypeLoading] = useState(true);
 
   // Interview state
   const [timeRemaining, setTimeRemaining] = useState(30 * 60); // 30 minutes
@@ -55,12 +60,60 @@ export default function InterviewStartPage({ params }) {
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState([]);
   const [sessionExpired, setSessionExpired] = useState(false);
+  
+  // Monitoring state
+  const [monitoringAlert, setMonitoringAlert] = useState(null);
 
   const totalQuestions = questions.length || 5;
   const minInterviewTime = 5 * 60; // 5 minutes minimum
 
-  // Initialize
+  // Detect interview type
   useEffect(() => {
+    const checkInterviewType = async () => {
+      try {
+        const sessionToken = sessionTokenUtils.get();
+        console.log("[Interview] Checking type with token:", sessionToken);
+        const result = await publicFetch(`/interviews/public/validate/${interviewToken}`, {
+          headers: {
+            "X-Interview-Session": sessionToken,
+          },
+        });
+        
+        console.log("[Interview] Type check result:", result);
+        if (result.success && result.data.interviewType) {
+          setInterviewType(result.data.interviewType);
+        } else {
+          setInterviewType("text"); // Default to text
+        }
+      } catch (error) {
+        console.error("[Interview] Error checking interview type:", error);
+        setInterviewType("text"); // Default to text on error
+      } finally {
+        setTypeLoading(false);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      if (typeLoading) {
+        console.log("[Interview] Type check timeout, defaulting to text");
+        setTypeLoading(false);
+        setInterviewType("text");
+      }
+    }, 5000); // 5 second timeout
+
+    checkInterviewType();
+
+    return () => clearTimeout(timeout);
+  }, [interviewToken]);
+
+  // Initialize (text interview only)
+  useEffect(() => {
+    if (interviewType !== "text") {
+      console.log("[Interview] Skipping init - type is:", interviewType);
+      return;
+    }
+    
+    console.log("[Interview] Initializing text interview");
     loadQuestions();
     initializeMedia();
 
@@ -72,15 +125,15 @@ export default function InterviewStartPage({ params }) {
         });
       }
     };
-  }, []);
+  }, [interviewType]);
 
   // Timer countdown
   useEffect(() => {
+    if (interviewType !== "text") return;
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleInterviewEnd();
           return 0;
         }
         return prev - 1;
@@ -88,23 +141,25 @@ export default function InterviewStartPage({ params }) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [interviewType]);
 
   // Auto-scroll messages
   useEffect(() => {
+    if (interviewType !== "text") return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, interviewType]);
 
   // Ensure video stream is attached to video element
   useEffect(() => {
+    if (interviewType !== "text") return;
     if (stream && videoRef.current && !videoRef.current.srcObject) {
       videoRef.current.srcObject = stream;
     }
-  }, [stream]);
+  }, [stream, interviewType]);
 
   // Audio level monitoring
   useEffect(() => {
-    if (!stream) return;
+    if (interviewType !== "text" || !stream) return;
 
     try {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -134,12 +189,46 @@ export default function InterviewStartPage({ params }) {
     } catch (error) {
       console.error("Audio context error:", error);
     }
-  }, [stream]);
+  }, [stream, interviewType]);
+
+  // Initialize monitoring after stream and questions are ready
+  useEffect(() => {
+    if (interviewType !== "text" || !stream || !questions.length || loading) return;
+
+    const sessionToken = sessionTokenUtils.get();
+    if (!sessionToken) return;
+
+    const monitoring = new InterviewMonitoring(
+      interviewToken,
+      sessionToken,
+      (alert) => {
+        setMonitoringAlert(alert);
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => setMonitoringAlert(null), 5000);
+      }
+    );
+
+    // Initialize monitoring with video and audio stream
+    monitoring.initialize(videoRef.current, stream);
+    
+    // Request fullscreen
+    monitoring.requestFullscreen();
+
+    monitoringRef.current = monitoring;
+
+    return () => {
+      if (monitoringRef.current) {
+        monitoringRef.current.cleanup();
+      }
+    };
+  }, [stream, questions.length, loading, interviewToken, interviewType]);
 
   const loadQuestions = async () => {
+    console.log("[Interview] Loading questions...");
     const sessionToken = sessionTokenUtils.get();
 
     if (!sessionToken) {
+      console.error("[Interview] No session token found");
       setSessionExpired(true);
       setLoading(false);
       return;
@@ -157,11 +246,13 @@ export default function InterviewStartPage({ params }) {
         }
       );
 
+      console.log("[Interview] Questions loaded:", result);
       if (!result.success) {
         throw new Error(result.message || "Failed to load questions");
       }
 
       const loadedQuestions = result.data?.data?.questions || [];
+      console.log("[Interview] Parsed questions:", loadedQuestions);
       setQuestions(loadedQuestions);
 
       // Start with first question
@@ -177,7 +268,7 @@ export default function InterviewStartPage({ params }) {
 
       setLoading(false);
     } catch (error) {
-      console.error("Error loading questions:", error);
+      console.error("[Interview] Error loading questions:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to load interview questions",
@@ -298,6 +389,11 @@ export default function InterviewStartPage({ params }) {
   };
 
   const handleInterviewEnd = async () => {
+    // Cleanup monitoring
+    if (monitoringRef.current) {
+      monitoringRef.current.cleanup();
+    }
+
     // Stop and cleanup media stream
     if (stream) {
       stream.getTracks().forEach((track) => {
@@ -323,6 +419,11 @@ export default function InterviewStartPage({ params }) {
           return acc;
         }, {});
 
+      // Get monitoring summary
+      const monitoringSummary = monitoringRef.current
+        ? monitoringRef.current.getSummary()
+        : {};
+
       // Submit interview
       await publicFetch(
         `/interviews/public/submit/${interviewToken}?sessionToken=${encodeURIComponent(
@@ -338,6 +439,7 @@ export default function InterviewStartPage({ params }) {
             completedAt: new Date().toISOString(),
             timeSpent: 30 * 60 - timeRemaining,
             sessionType: "ai-interview",
+            monitoring: monitoringSummary,
           }),
         }
       );
@@ -395,6 +497,23 @@ export default function InterviewStartPage({ params }) {
         </div>
       </div>
     );
+  }
+
+  // Show loading while type is being determined
+  if (typeLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-slate-700 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading interview...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show audio interview if type is audio
+  if (interviewType === "audio") {
+    return <AudioInterviewPage params={params} />;
   }
 
   const progress = ((currentQuestionIndex + 1) / Math.max(questions.length, 1)) * 100;
@@ -549,7 +668,7 @@ export default function InterviewStartPage({ params }) {
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                       message.role === "ai"
-                        ? "bg-blue-600 text-white"
+                        ? "bg-slate-700 text-white"
                         : "bg-gray-200 text-gray-700"
                     }`}
                   >
@@ -563,13 +682,13 @@ export default function InterviewStartPage({ params }) {
                     className={`max-w-[70%] rounded-lg p-4 ${
                       message.role === "ai"
                         ? "bg-gray-100 text-gray-900"
-                        : "bg-blue-600 text-white"
+                        : "bg-slate-700 text-white"
                     }`}
                   >
                     <p className="text-sm leading-relaxed">{message.content}</p>
                     <span
                       className={`text-xs opacity-60 mt-2 block ${
-                        message.role === "ai" ? "text-gray-500" : "text-blue-100"
+                        message.role === "ai" ? "text-gray-500" : "text-slate-200"
                       }`}
                     >
                       {message.timestamp.toLocaleTimeString([], {
@@ -644,6 +763,51 @@ export default function InterviewStartPage({ params }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Monitoring Alert */}
+      {monitoringAlert && (
+        <div className="fixed inset-0 flex items-end justify-center pb-8 z-50 pointer-events-none">
+          <Card
+            className={`w-96 pointer-events-auto ${
+              monitoringAlert.severity === "critical"
+                ? "border-red-500 bg-red-50"
+                : "border-yellow-500 bg-yellow-50"
+            }`}
+          >
+            <CardContent className="p-4">
+              <div className="flex gap-3">
+                <AlertCircle
+                  className={`w-5 h-5 flex-shrink-0 ${
+                    monitoringAlert.severity === "critical"
+                      ? "text-red-600"
+                      : "text-yellow-600"
+                  }`}
+                />
+                <div className="flex-1">
+                  <h3
+                    className={`font-semibold ${
+                      monitoringAlert.severity === "critical"
+                        ? "text-red-900"
+                        : "text-yellow-900"
+                    }`}
+                  >
+                    {monitoringAlert.title}
+                  </h3>
+                  <p
+                    className={`text-sm mt-1 ${
+                      monitoringAlert.severity === "critical"
+                        ? "text-red-700"
+                        : "text-yellow-700"
+                    }`}
+                  >
+                    {monitoringAlert.message}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
