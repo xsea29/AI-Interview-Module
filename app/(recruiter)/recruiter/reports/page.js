@@ -1,37 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
-import {
-  FileText,
-  Search,
-  Filter,
-  Download,
-  Eye,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Share2,
-  BarChart3
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Filter, Download } from "lucide-react";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { ReportCard } from "@/components/reports/ReportCard";
+import { ReportDetailModal } from "@/components/reports/ReportDetailModal";
+import { ReportAnalytics } from "@/components/reports/ReportAnalytics";
+import { mockReports } from "@/types/report";
+import reportService from "@/lib/reportService";
 
 const getScoreColor = (score) => {
   if (score >= 85) return "text-success";
@@ -138,19 +119,83 @@ const getRecommendationBadge = (recommendation) => {
 };
 
 const Reports = () => {
+  const { toast } = useToast();
+  const [reports, setReports] = useState(mockReports);
+  const [analytics, setAnalytics] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
-  const [filterJob, setFilterJob] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [filterRecommendation, setFilterRecommendation] = useState("all");
+  const [filterLifecycle, setFilterLifecycle] = useState("all");
+  const [activeTab, setActiveTab] = useState("all");
+  const [isLoading, setIsLoading] = useState(false);
+  const [pagination, setPagination] = useState({ total: 0, skip: 0, limit: 20, hasMore: false });
 
-  const stats = {
-    totalReports: reports.length,
-    strongHires: reports.filter(r => r.recommendation === "strong_hire").length,
-    hires: reports.filter(r => r.recommendation === "hire").length,
-    noHires: reports.filter(r => r.recommendation === "no_hire").length,
-  };
+  // Fetch reports on component mount and when filters change
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        setIsLoading(true);
+        const data = await reportService.getReports({
+          search: searchTerm,
+          recommendation: filterRecommendation,
+          lifecycleStatus: filterLifecycle,
+          limit: pagination.limit,
+          skip: pagination.skip,
+        });
+        setReports(data.reports || mockReports);
+        setPagination(data.pagination || pagination);
+      } catch (error) {
+        console.error('Failed to fetch reports:', error);
+        toast({
+          title: "Note",
+          description: "Using sample data. Backend not yet configured.",
+          variant: "default",
+        });
+        // Keep using mock data as fallback
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
+    // Debounce search
+    const timer = setTimeout(() => {
+      fetchReports();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, filterRecommendation, filterLifecycle, pagination.skip, pagination.limit, toast]);
+
+  // Fetch analytics when tab changes
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (activeTab !== 'analytics') return;
+      
+      try {
+        const data = await reportService.getAnalytics();
+        setAnalytics(data);
+      } catch (error) {
+        console.error('Failed to fetch analytics:', error);
+        toast({
+          title: "Note",
+          description: "Using sample data for analytics.",
+          variant: "default",
+        });
+      }
+    };
+
+    fetchAnalytics();
+  }, [activeTab, toast]);
+
+  // Local filtering for UI when backend is not ready
   const filteredReports = reports.filter(report => {
+    if (searchTerm && !report.candidate.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filterRecommendation !== "all" && report.recommendation !== filterRecommendation) return false;
+    if (filterLifecycle !== "all" && report.lifecycleStatus !== filterLifecycle) return false;
+
+    // Tab filters
+    if (activeTab === "pending" && report.lifecycleStatus !== "draft") return false;
+    if (activeTab === "approved" && report.lifecycleStatus !== "approved") return false;
+
     return true;
   });
 
@@ -169,294 +214,126 @@ const Reports = () => {
           </Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <FileText className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stats.totalReports}</p>
-                  <p className="text-sm text-muted-foreground">Total Reports</p>
-                </div>
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList>
+            <TabsTrigger value="all">All Reports ({mockReports.length})</TabsTrigger>
+            <TabsTrigger value="pending">Pending Review ({mockReports.filter(r => r.lifecycleStatus === 'draft').length})</TabsTrigger>
+            <TabsTrigger value="approved">Approved ({mockReports.filter(r => r.lifecycleStatus === 'approved').length})</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="all" className="space-y-6">
+            {/* Filters */}
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by candidate name..."
+                  className="pl-10"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
-                  <TrendingUp className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stats.strongHires}</p>
-                  <p className="text-sm text-muted-foreground">Strong Hires</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-info/10 flex items-center justify-center">
-                  <CheckCircle2 className="h-5 w-5 text-info" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stats.hires}</p>
-                  <p className="text-sm text-muted-foreground">Recommended Hires</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-destructive/10 flex items-center justify-center">
-                  <TrendingDown className="h-5 w-5 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stats.noHires}</p>
-                  <p className="text-sm text-muted-foreground">Not Recommended</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              <Select value={filterRecommendation} onValueChange={setFilterRecommendation}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Recommendation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Recommendations</SelectItem>
+                  <SelectItem value="strong_hire">Strong Hire</SelectItem>
+                  <SelectItem value="hire">Hire</SelectItem>
+                  <SelectItem value="borderline">Borderline</SelectItem>
+                  <SelectItem value="no_hire">No Hire</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterLifecycle} onValueChange={setFilterLifecycle}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="reviewed">Reviewed</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="actioned">Actioned</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search reports..." className="pl-10" />
-          </div>
-          <Select value={filterRecommendation} onValueChange={setFilterRecommendation}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Recommendation" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Recommendations</SelectItem>
-              <SelectItem value="strong_hire">Strong Hire</SelectItem>
-              <SelectItem value="hire">Hire</SelectItem>
-              <SelectItem value="no_hire">No Hire</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            More Filters
-          </Button>
-        </div>
+            {/* Reports List */}
+            <div className="space-y-4">
+              {filteredReports.length > 0 ? (
+                filteredReports.map((report, index) => (
+                  <ReportCard
+                    key={report._id}
+                    report={report}
+                    index={index}
+                    onSelect={setSelectedReport}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No reports found matching your criteria.</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
-        {/* Reports List */}
-        <div className="space-y-4">
-          {filteredReports.map((report, index) => (
-            <motion.div
-              key={report.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Card 
-                variant="interactive" 
-                onClick={() => setSelectedReport(report)}
-                className="cursor-pointer hover:shadow-md transition-shadow"
-              >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="h-12 w-12 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
-                      <span className="text-lg font-semibold text-accent">
-                        {report.candidate.split(' ').map(n => n[0]).join('')}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-foreground">{report.candidate}</h3>
-                        {getRecommendationBadge(report.recommendation)}
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">{report.role}</p>
-                    </div>
-                    
-                    {/* Scores */}
-                    <div className="hidden md:flex items-center gap-6">
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Job Fit</p>
-                        <p className={`text-lg font-bold ${getScoreColor(report.jobFitScore)}`}>{report.jobFitScore}%</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Technical</p>
-                        <p className={`text-lg font-bold ${getScoreColor(report.technicalScore)}`}>{report.technicalScore}%</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground">Communication</p>
-                        <p className={`text-lg font-bold ${getScoreColor(report.communicationScore)}`}>{report.communicationScore}%</p>
-                      </div>
-                    </div>
+          <TabsContent value="pending" className="space-y-6">
+            <div className="space-y-4">
+              {filteredReports.filter(r => r.lifecycleStatus === 'draft').length > 0 ? (
+                filteredReports
+                  .filter(r => r.lifecycleStatus === 'draft')
+                  .map((report, index) => (
+                    <ReportCard
+                      key={report._id}
+                      report={report}
+                      index={index}
+                      onSelect={setSelectedReport}
+                    />
+                  ))
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No pending reports.</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
-                    {/* Overall Score */}
-                    <div className="text-right">
-                      <div className="w-16">
-                        <Progress
-  value={report.score}
-  className="h-2"
-  indicatorClassName={getProgressColor(report.score)}
-/>
+          <TabsContent value="approved" className="space-y-6">
+            <div className="space-y-4">
+              {filteredReports.filter(r => r.lifecycleStatus === 'approved').length > 0 ? (
+                filteredReports
+                  .filter(r => r.lifecycleStatus === 'approved')
+                  .map((report, index) => (
+                    <ReportCard
+                      key={report._id}
+                      report={report}
+                      index={index}
+                      onSelect={setSelectedReport}
+                    />
+                  ))
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No approved reports.</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
-                      </div>
-                      <p className={`text-2xl font-bold ${getScoreColor(report.score)} mt-1`}>{report.score}%</p>
-                      <p className="text-xs text-muted-foreground">Overall</p>
-                    </div>
-
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedReport(report);
-                      }}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
+          <TabsContent value="analytics" className="space-y-6">
+            <ReportAnalytics reports={analytics ? [] : mockReports} />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Report Detail Modal */}
-      <Dialog open={!!selectedReport} onOpenChange={() => setSelectedReport(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          {selectedReport && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-accent/10 flex items-center justify-center">
-                    <span className="font-semibold text-accent">
-                      {selectedReport.candidate.split(' ').map(n => n[0]).join('')}
-                    </span>
-                  </div>
-                  <div>
-                    <span>{selectedReport.candidate}</span>
-                    <p className="text-sm font-normal text-muted-foreground">{selectedReport.role}</p>
-                  </div>
-                  {getRecommendationBadge(selectedReport.recommendation)}
-                </DialogTitle>
-                <DialogDescription>
-                  Interview completed on {selectedReport.completedAt}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-6 mt-4">
-                {/* Score Summary */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Score Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-4 gap-4">
-                      <div className="text-center p-4 bg-secondary/30 rounded-lg">
-                        <p className="text-3xl font-bold text-foreground">{selectedReport.score}%</p>
-                        <p className="text-sm text-muted-foreground">Overall Score</p>
-                      </div>
-                      <div className="text-center p-4 bg-secondary/30 rounded-lg">
-                        <p className="text-3xl font-bold text-foreground">{selectedReport.jobFitScore}%</p>
-                        <p className="text-sm text-muted-foreground">Job Fit</p>
-                      </div>
-                      <div className="text-center p-4 bg-secondary/30 rounded-lg">
-                        <p className="text-3xl font-bold text-foreground">{selectedReport.technicalScore}%</p>
-                        <p className="text-sm text-muted-foreground">Technical</p>
-                      </div>
-                      <div className="text-center p-4 bg-secondary/30 rounded-lg">
-                        <p className="text-3xl font-bold text-foreground">{selectedReport.communicationScore}%</p>
-                        <p className="text-sm text-muted-foreground">Communication</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Strengths & Weaknesses */}
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <TrendingUp className="h-5 w-5 text-success" />
-                        Strengths
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedReport.strengths.map((strength, i) => (
-                          <Badge key={i} variant="success">{strength}</Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <TrendingDown className="h-5 w-5 text-warning" />
-                        Areas for Improvement
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedReport.weaknesses.length > 0 ? (
-                          selectedReport.weaknesses.map((weakness, i) => (
-                            <Badge key={i} variant="warning">{weakness}</Badge>
-                          ))
-                        ) : (
-                          <p className="text-sm text-muted-foreground">None identified</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Red Flags */}
-                {selectedReport.redFlags.length > 0 && (
-                  <Card className="border-destructive/50">
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2 text-destructive">
-                        <AlertCircle className="h-5 w-5" />
-                        Red Flags
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedReport.redFlags.map((flag, i) => (
-                          <Badge key={i} variant="destructive">{flag}</Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Actions */}
-                <div className="flex items-center justify-between pt-4 border-t border-border">
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm">
-                      <Share2 className="h-4 w-4 mr-2" />
-                      Share with Hiring Manager
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export PDF
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline">Reject</Button>
-                    <Button variant="success">Move to Next Stage</Button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <ReportDetailModal
+        report={selectedReport}
+        open={!!selectedReport}
+        onClose={() => setSelectedReport(null)}
+      />
     </RecruiterLayout>
   );
 };
