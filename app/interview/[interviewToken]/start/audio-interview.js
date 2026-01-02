@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { publicFetch, sessionTokenUtils } from "@/lib/public-api";
+import { PUBLIC_INTERVIEW_ENDPOINTS } from "@/lib/apiConfig";
 import InterviewMonitoring from "@/lib/monitoring";
 
 export default function AudioInterviewPage({ params }) {
@@ -215,17 +216,23 @@ export default function AudioInterviewPage({ params }) {
       } else {
         clearInterval(typeInterval);
         setTimeout(() => {
-          setAiState("listening");
-          setInterviewPhase("answering");
-          setIsRecording(true);
-          setAnswerTime(0);
-          setCurrentAnswer("");
+          // If we're in intro phase, ask first question
+          if (interviewPhase === "intro") {
+            askFirstQuestion();
+          } else if (interviewPhase === "question") {
+            // If we're asking a question, switch to listening mode
+            setAiState("listening");
+            setInterviewPhase("answering");
+            setIsRecording(true);
+            setAnswerTime(0);
+            setCurrentAnswer("");
+          }
         }, 1000);
       }
     }, 40);
 
     return () => clearInterval(typeInterval);
-  }, [currentQuestionText, aiState]);
+  }, [currentQuestionText, aiState, interviewPhase, askFirstQuestion]);
 
   const loadQuestions = async () => {
     const sessionToken = sessionTokenUtils.get();
@@ -241,10 +248,9 @@ export default function AudioInterviewPage({ params }) {
     }
 
     try {
+      const endpoint = PUBLIC_INTERVIEW_ENDPOINTS.GET_QUESTIONS(interviewToken);
       const result = await publicFetch(
-        `/interviews/public/questions/${interviewToken}?sessionToken=${encodeURIComponent(
-          sessionToken
-        )}`,
+        endpoint,
         {
           headers: {
             "X-Interview-Session": sessionToken,
@@ -257,6 +263,10 @@ export default function AudioInterviewPage({ params }) {
       }
 
       const loadedQuestions = result.data?.data?.questions || [];
+      console.log("[Audio Interview] Questions loaded:", {
+        count: loadedQuestions.length,
+        questions: loadedQuestions,
+      });
       setQuestions(loadedQuestions);
       setLoading(false);
     } catch (error) {
@@ -299,7 +309,19 @@ export default function AudioInterviewPage({ params }) {
     setAiState("speaking");
     setInterviewPhase("intro");
     setCurrentQuestionText(intro);
+    // After intro finishes, askFirstQuestion will be called from typewriter effect
   };
+
+  const askFirstQuestion = useCallback(() => {
+    if (questions.length === 0) return;
+
+    setCurrentQuestionIndex(0);
+    setAiState("speaking");
+    setInterviewPhase("question");
+    setCurrentQuestionText(questions[0].question?.text || "First question");
+    setMaxAnswerTime(questions[0].maxAnswerTime || 120);
+    setIsRecording(false);
+  }, [questions]);
 
   const askNextQuestion = useCallback(() => {
     const nextIndex = currentQuestionIndex + 1;
@@ -322,7 +344,13 @@ export default function AudioInterviewPage({ params }) {
   }, [currentQuestionIndex, questions]);
 
   const handleAnswerComplete = () => {
-    // Save current answer
+    // Save current answer with proper indexing
+    console.log("[Audio Interview] Recording answer:", {
+      questionIndex: currentQuestionIndex,
+      answer: currentAnswer,
+      allAnswers: { ...answers, [currentQuestionIndex]: currentAnswer },
+    });
+
     setAnswers((prev) => ({
       ...prev,
       [currentQuestionIndex]: currentAnswer,
@@ -400,11 +428,17 @@ export default function AudioInterviewPage({ params }) {
         ? monitoringRef.current.getSummary()
         : {};
 
+      console.log("[Audio Interview] Submitting with answers:", {
+        answersCount: Object.keys(answers).length,
+        questionsCount: questions.length,
+        answers,
+        timeSpent: 30 * 60 - timeRemaining,
+      });
+
       // Submit interview
-      await publicFetch(
-        `/interviews/public/submit/${interviewToken}?sessionToken=${encodeURIComponent(
-          sessionToken
-        )}`,
+      const endpoint = PUBLIC_INTERVIEW_ENDPOINTS.SUBMIT_ANSWERS(interviewToken);
+      const response = await publicFetch(
+        endpoint,
         {
           method: "POST",
           headers: {
@@ -419,6 +453,30 @@ export default function AudioInterviewPage({ params }) {
           }),
         }
       );
+
+      console.log("[Audio Interview] Submission response:", response);
+
+      // Trigger report generation if backend didn't do it automatically
+      if (response.success && response.data?.interviewId) {
+        try {
+          console.log("[Audio Interview] Triggering report generation for interview:", response.data.interviewId);
+          const reportEndpoint = `/reports/from-interview/${response.data.interviewId}`;
+          
+          // Use publicFetch since we have the session token
+          const reportResponse = await publicFetch(reportEndpoint, {
+            method: "POST",
+            headers: {
+              "X-Interview-Session": sessionToken,
+            },
+            body: JSON.stringify({ interviewId: response.data.interviewId }),
+          });
+          
+          console.log("[Audio Interview] Report generation response:", reportResponse);
+        } catch (reportError) {
+          console.warn("[Audio Interview] Report generation failed, but interview was submitted:", reportError);
+          // Don't fail the interview - report can be generated later
+        }
+      }
 
       sessionTokenUtils.clear();
       router.push(`/interview/${interviewToken}/complete`);

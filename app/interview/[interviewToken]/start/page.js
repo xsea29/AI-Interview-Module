@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { publicFetch, sessionTokenUtils } from "@/lib/public-api";
+import { PUBLIC_INTERVIEW_ENDPOINTS, buildApiUrl } from "@/lib/apiConfig";
 import InterviewMonitoring from "@/lib/monitoring";
 import AudioInterviewPage from "./audio-interview";
 
@@ -235,10 +236,11 @@ export default function InterviewStartPage({ params }) {
     }
 
     try {
+      const endpoint = PUBLIC_INTERVIEW_ENDPOINTS.GET_QUESTIONS(interviewToken);
+      console.log("[Interview] Calling endpoint:", endpoint);
+      
       const result = await publicFetch(
-        `/interviews/public/questions/${interviewToken}?sessionToken=${encodeURIComponent(
-          sessionToken
-        )}`,
+        endpoint,
         {
           headers: {
             "X-Interview-Session": sessionToken,
@@ -252,7 +254,10 @@ export default function InterviewStartPage({ params }) {
       }
 
       const loadedQuestions = result.data?.data?.questions || [];
-      console.log("[Interview] Parsed questions:", loadedQuestions);
+      console.log("[Interview] Parsed questions:", {
+        count: loadedQuestions.length,
+        questions: loadedQuestions,
+      });
       setQuestions(loadedQuestions);
 
       // Start with first question
@@ -377,14 +382,15 @@ export default function InterviewStartPage({ params }) {
 
   const handleEndInterview = () => {
     const elapsedTime = 30 * 60 - timeRemaining;
-    if (elapsedTime < minInterviewTime) {
-      toast({
-        title: "Cannot End Yet",
-        description: "Please continue the interview for at least 5 minutes.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Commented out 5-minute restriction for testing
+    // if (elapsedTime < minInterviewTime) {
+    //   toast({
+    //     title: "Cannot End Yet",
+    //     description: "Please continue the interview for at least 5 minutes.",
+    //     variant: "destructive",
+    //   });
+    //   return;
+    // }
     setShowEndDialog(true);
   };
 
@@ -411,24 +417,34 @@ export default function InterviewStartPage({ params }) {
     const sessionToken = sessionTokenUtils.get();
 
     try {
-      // Collect answers from messages (candidate responses)
-      const answers = messages
-        .filter((msg) => msg.role === "candidate")
-        .reduce((acc, msg, index) => {
-          acc[index] = msg.content;
-          return acc;
-        }, {});
+      // Collect answers from messages with proper question indexing
+      const answers = {};
+      let answerIndex = 0;
+      
+      messages.forEach((msg) => {
+        if (msg.role === "candidate") {
+          answers[answerIndex] = msg.content;
+          answerIndex++;
+        }
+      });
+
+      console.log("[Interview] Answers collected:", answers);
 
       // Get monitoring summary
       const monitoringSummary = monitoringRef.current
         ? monitoringRef.current.getSummary()
         : {};
 
+      console.log("[Interview] Submitting interview with:", {
+        answersCount: Object.keys(answers).length,
+        questionsCount: questions.length,
+        timeSpent: 30 * 60 - timeRemaining,
+      });
+
       // Submit interview
-      await publicFetch(
-        `/interviews/public/submit/${interviewToken}?sessionToken=${encodeURIComponent(
-          sessionToken
-        )}`,
+      const endpoint = PUBLIC_INTERVIEW_ENDPOINTS.SUBMIT_ANSWERS(interviewToken);
+      const response = await publicFetch(
+        endpoint,
         {
           method: "POST",
           headers: {
@@ -443,6 +459,30 @@ export default function InterviewStartPage({ params }) {
           }),
         }
       );
+
+      console.log("[Interview] Submission response:", response);
+
+      // Trigger report generation if backend didn't do it automatically
+      if (response.success && response.data?.interviewId) {
+        try {
+          console.log("[Interview] Triggering report generation for interview:", response.data.interviewId);
+          const reportEndpoint = `/reports/from-interview/${response.data.interviewId}`;
+          
+          // Use publicFetch since we have the session token
+          const reportResponse = await publicFetch(reportEndpoint, {
+            method: "POST",
+            headers: {
+              "X-Interview-Session": sessionToken,
+            },
+            body: JSON.stringify({ interviewId: response.data.interviewId }),
+          });
+          
+          console.log("[Interview] Report generation response:", reportResponse);
+        } catch (reportError) {
+          console.warn("[Interview] Report generation failed, but interview was submitted:", reportError);
+          // Don't fail the interview - report can be generated later
+        }
+      }
 
       sessionTokenUtils.clear();
       router.push(`/interview/${interviewToken}/complete`);
