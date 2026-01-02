@@ -202,38 +202,6 @@ export default function AudioInterviewPage({ params }) {
     }
   }, [stream, interviewPhase]);
 
-  // Typewriter effect
-  useEffect(() => {
-    if (!currentQuestionText || aiState !== "speaking") return;
-
-    let index = 0;
-    setDisplayedText("");
-
-    const typeInterval = setInterval(() => {
-      if (index < currentQuestionText.length) {
-        setDisplayedText(currentQuestionText.substring(0, index + 1));
-        index++;
-      } else {
-        clearInterval(typeInterval);
-        setTimeout(() => {
-          // If we're in intro phase, ask first question
-          if (interviewPhase === "intro") {
-            askFirstQuestion();
-          } else if (interviewPhase === "question") {
-            // If we're asking a question, switch to listening mode
-            setAiState("listening");
-            setInterviewPhase("answering");
-            setIsRecording(true);
-            setAnswerTime(0);
-            setCurrentAnswer("");
-          }
-        }, 1000);
-      }
-    }, 40);
-
-    return () => clearInterval(typeInterval);
-  }, [currentQuestionText, aiState, interviewPhase, askFirstQuestion]);
-
   const loadQuestions = async () => {
     const sessionToken = sessionTokenUtils.get();
 
@@ -342,6 +310,38 @@ export default function AudioInterviewPage({ params }) {
     setMaxAnswerTime(questions[nextIndex].maxAnswerTime || 120);
     setIsRecording(false);
   }, [currentQuestionIndex, questions]);
+
+  // Typewriter effect
+  useEffect(() => {
+    if (!currentQuestionText || aiState !== "speaking") return;
+
+    let index = 0;
+    setDisplayedText("");
+
+    const typeInterval = setInterval(() => {
+      if (index < currentQuestionText.length) {
+        setDisplayedText(currentQuestionText.substring(0, index + 1));
+        index++;
+      } else {
+        clearInterval(typeInterval);
+        setTimeout(() => {
+          // If we're in intro phase, ask first question
+          if (interviewPhase === "intro") {
+            askFirstQuestion();
+          } else if (interviewPhase === "question") {
+            // If we're asking a question, switch to listening mode
+            setAiState("listening");
+            setInterviewPhase("answering");
+            setIsRecording(true);
+            setAnswerTime(0);
+            setCurrentAnswer("");
+          }
+        }, 1000);
+      }
+    }, 40);
+
+    return () => clearInterval(typeInterval);
+  }, [currentQuestionText, aiState, interviewPhase, askFirstQuestion]);
 
   const handleAnswerComplete = () => {
     // Save current answer with proper indexing

@@ -69,43 +69,211 @@ export default function InterviewStartPage({ params }) {
   const minInterviewTime = 5 * 60; // 5 minutes minimum
 
   // Detect interview type
-  useEffect(() => {
-    const checkInterviewType = async () => {
-      try {
-        const sessionToken = sessionTokenUtils.get();
-        console.log("[Interview] Checking type with token:", sessionToken);
-        const result = await publicFetch(`/interviews/public/validate/${interviewToken}`, {
-          headers: {
-            "X-Interview-Session": sessionToken,
-          },
+  // useEffect(() => {
+  //   let timeoutId = null;
+  //   let isMounted = true;
+
+  //   const checkInterviewType = async () => {
+  //     try {
+  //       const sessionToken = sessionTokenUtils.get();
+  //       console.log("[Interview] Checking type with token:", sessionToken);
+  //       const result = await publicFetch(`/interviews/public/validate/${interviewToken}`, {
+  //         headers: {
+  //           "X-Interview-Session": sessionToken,
+  //         },
+  //       });
+        
+  //       console.log("[Interview] Type check result:", result);
+        
+  //       // Clear timeout immediately on success
+  //       if (timeoutId) {
+  //         clearTimeout(timeoutId);
+  //         timeoutId = null;
+  //       }
+
+  //       if (!isMounted) return;
+
+  //       if (result.success && result.data) {
+  //         // Map interviewMode or sessionType to interviewType
+  //         let type = "text"; // default
+          
+  //         // Check for interviewType field first (if backend provides it)
+  //         if (result.data.interviewType) {
+  //           const rawType = result.data.interviewType;
+  //           // Normalize the type value
+  //           if (rawType === "audio-interview" || rawType === "audio") {
+  //             type = "audio";
+  //           } else if (rawType === "video-interview" || rawType === "video") {
+  //             type = "video";
+  //           } else {
+  //             type = "text";
+  //           }
+  //         }
+  //         // Fall back to config.interviewMode
+  //         else if (result.data.config?.interviewMode) {
+  //           type = result.data.config.interviewMode;
+  //         }
+  //         // Fall back to sessionType
+  //         else if (result.data.sessionType) {
+  //           // Map sessionType to interviewType
+  //           if (result.data.sessionType === "audio-interview") {
+  //             type = "audio";
+  //           } else if (result.data.sessionType === "video-interview") {
+  //             type = "video";
+  //           } else {
+  //             type = "text";
+  //           }
+  //         }
+          
+  //         console.log("[Interview] Determined interview type:", type);
+  //         setInterviewType(type);
+  //         setTypeLoading(false);
+  //       } else {
+  //         setInterviewType("text"); // Default to text
+  //         setTypeLoading(false);
+  //       }
+  //     } catch (error) {
+  //       console.error("[Interview] Error checking interview type:", error);
+        
+  //       // Clear timeout on error
+  //       if (timeoutId) {
+  //         clearTimeout(timeoutId);
+  //         timeoutId = null;
+  //       }
+
+  //       if (isMounted) {
+  //         setInterviewType("text"); // Default to text on error
+  //         setTypeLoading(false);
+  //       }
+  //     }
+  //   };
+
+  //   timeoutId = setTimeout(() => {
+  //     if (isMounted && typeLoading) {
+  //       console.log("[Interview] Type check timeout, defaulting to text");
+  //       setTypeLoading(false);
+  //       setInterviewType("text");
+  //     }
+  //   }, 5000); // 5 second timeout
+
+  //   checkInterviewType();
+
+  //   return () => {
+  //     isMounted = false;
+  //     if (timeoutId) {
+  //       clearTimeout(timeoutId);
+  //     }
+  //   };
+  // }, [interviewToken]);
+  // Detect interview type
+useEffect(() => {
+  let timeoutId = null;
+  let isMounted = true;
+
+  const checkInterviewType = async () => {
+    try {
+      const sessionToken = sessionTokenUtils.get();
+      console.log("[Interview] Checking type with token:", sessionToken);
+      const result = await publicFetch(`/interviews/public/validate/${interviewToken}`, {
+        headers: {
+          "X-Interview-Session": sessionToken,
+        },
+      });
+      
+      console.log("[Interview] Type check result:", JSON.stringify(result, null, 2));
+      
+      // Clear timeout immediately on success
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      if (!isMounted) return;
+
+      if (result.success && result.data) {
+        // Debug: Show all relevant fields
+        console.log("[Interview] Relevant fields:", {
+          interviewType: result.data.interviewType,
+          configInterviewMode: result.data.config?.interviewMode,
+          config: result.data.config
         });
         
-        console.log("[Interview] Type check result:", result);
-        if (result.success && result.data.interviewType) {
-          setInterviewType(result.data.interviewType);
-        } else {
-          setInterviewType("text"); // Default to text
+        let type = "text"; // default
+        
+        // PRIORITY 1: Use config.interviewMode FIRST (most accurate)
+        // According to your API response, this should be "audio"
+        if (result.data.config?.interviewMode) {
+          type = result.data.config.interviewMode.toLowerCase();
+          console.log("[Interview] Using config.interviewMode:", type);
         }
-      } catch (error) {
-        console.error("[Interview] Error checking interview type:", error);
-        setInterviewType("text"); // Default to text on error
-      } finally {
+        // PRIORITY 2: Then check interviewType field
+        else if (result.data.interviewType) {
+          const rawType = result.data.interviewType.toLowerCase();
+          console.log("[Interview] Using interviewType:", rawType);
+          
+          // Map "audio-interview" to "audio"
+          if (rawType.includes("audio")) {
+            type = "audio";
+          } else if (rawType.includes("video")) {
+            type = "video";
+          } else {
+            type = "text";
+          }
+        }
+        // PRIORITY 3: Then check sessionType
+        else if (result.data.sessionType) {
+          const rawType = result.data.sessionType.toLowerCase();
+          if (rawType.includes("audio")) {
+            type = "audio";
+          } else if (rawType.includes("video")) {
+            type = "video";
+          } else {
+            type = "text";
+          }
+        }
+        
+        console.log("[Interview] FINAL Determined interview type:", type);
+        setInterviewType(type);
         setTypeLoading(false);
-      }
-    };
-
-    const timeout = setTimeout(() => {
-      if (typeLoading) {
-        console.log("[Interview] Type check timeout, defaulting to text");
-        setTypeLoading(false);
+      } else {
+        console.log("[Interview] API success but no data, defaulting to text");
         setInterviewType("text");
+        setTypeLoading(false);
       }
-    }, 5000); // 5 second timeout
+    } catch (error) {
+      console.error("[Interview] Error checking interview type:", error);
+      
+      // Clear timeout on error
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
 
-    checkInterviewType();
+      if (isMounted) {
+        console.log("[Interview] Defaulting to text due to error");
+        setInterviewType("text");
+        setTypeLoading(false);
+      }
+    }
+  };
 
-    return () => clearTimeout(timeout);
-  }, [interviewToken]);
+  timeoutId = setTimeout(() => {
+    if (isMounted && typeLoading) {
+      console.log("[Interview] Type check timeout, defaulting to text");
+      setTypeLoading(false);
+      setInterviewType("text");
+    }
+  }, 5000); // 5 second timeout
+
+  checkInterviewType();
+
+  return () => {
+    isMounted = false;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  };
+}, [interviewToken]);
 
   // Initialize (text interview only)
   useEffect(() => {
@@ -261,15 +429,31 @@ export default function InterviewStartPage({ params }) {
       setQuestions(loadedQuestions);
 
       // Start with first question
-      if (loadedQuestions.length > 0) {
-        const welcomeMessage = {
-          id: "1",
-          role: "ai",
-          content: loadedQuestions[0].question?.text || "Let's begin the interview",
-          timestamp: new Date(),
-        };
-        setMessages([welcomeMessage]);
-      }
+      // if (loadedQuestions.length > 0) {
+      //   const welcomeMessage = {
+      //     id: "1",
+      //     role: "ai",
+      //     content: loadedQuestions[0].question?.text || "Let's begin the interview",
+      //     timestamp: new Date(),
+      //   };
+      //   setMessages([welcomeMessage]);
+      // }
+
+      // Start with first question
+if (loadedQuestions.length > 0) {
+  const firstQuestion = loadedQuestions[0];
+  const welcomeMessage = {
+    id: "1",
+    role: "ai",
+    content: 
+      firstQuestion.question?.text || 
+      firstQuestion.text || 
+      firstQuestion || 
+      "Let's begin the interview",
+    timestamp: new Date(),
+  };
+  setMessages([welcomeMessage]);
+}
 
       setLoading(false);
     } catch (error) {
@@ -328,51 +512,107 @@ export default function InterviewStartPage({ params }) {
     }
   };
 
+  // const handleSendMessage = () => {
+  //   if (!inputMessage.trim()) return;
+
+  //   // Add candidate message
+  //   const candidateMessage = {
+  //     id: Date.now().toString(),
+  //     role: "candidate",
+  //     content: inputMessage,
+  //     timestamp: new Date(),
+  //   };
+  //   setMessages((prev) => [...prev, candidateMessage]);
+  //   setInputMessage("");
+
+  //   // Simulate AI response
+  //   setIsAITyping(true);
+  //   setTimeout(() => {
+  //     const nextQuestionIndex = currentQuestionIndex + 1;
+
+  //     if (nextQuestionIndex < questions.length) {
+  //       const aiMessage = {
+  //         id: (Date.now() + 1).toString(),
+  //         role: "ai",
+  //         content:
+  //           questions[nextQuestionIndex].question?.text ||
+  //           "Please continue...",
+  //         timestamp: new Date(),
+  //       };
+  //       setMessages((prev) => [...prev, aiMessage]);
+  //       setCurrentQuestionIndex(nextQuestionIndex);
+  //     } else {
+  //       // All questions answered
+  //       const completionMessage = {
+  //         id: (Date.now() + 1).toString(),
+  //         role: "ai",
+  //         content:
+  //           "Thank you for completing all the interview questions! Your responses have been recorded. You may now end the interview.",
+  //         timestamp: new Date(),
+  //       };
+  //       setMessages((prev) => [...prev, completionMessage]);
+  //     }
+
+  //     setIsAITyping(false);
+  //   }, 2000);
+  // };
+
   const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+  if (!inputMessage.trim()) return;
 
-    // Add candidate message
-    const candidateMessage = {
-      id: Date.now().toString(),
-      role: "candidate",
-      content: inputMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, candidateMessage]);
-    setInputMessage("");
-
-    // Simulate AI response
-    setIsAITyping(true);
-    setTimeout(() => {
-      const nextQuestionIndex = currentQuestionIndex + 1;
-
-      if (nextQuestionIndex < questions.length) {
-        const aiMessage = {
-          id: (Date.now() + 1).toString(),
-          role: "ai",
-          content:
-            questions[nextQuestionIndex].question?.text ||
-            "Please continue...",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, aiMessage]);
-        setCurrentQuestionIndex(nextQuestionIndex);
-      } else {
-        // All questions answered
-        const completionMessage = {
-          id: (Date.now() + 1).toString(),
-          role: "ai",
-          content:
-            "Thank you for completing all the interview questions! Your responses have been recorded. You may now end the interview.",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, completionMessage]);
-      }
-
-      setIsAITyping(false);
-    }, 2000);
+  // Add candidate message
+  const candidateMessage = {
+    id: Date.now().toString(),
+    role: "candidate",
+    content: inputMessage,
+    timestamp: new Date(),
   };
+  setMessages((prev) => [...prev, candidateMessage]);
+  setInputMessage("");
 
+  // Simulate AI response
+  setIsAITyping(true);
+  setTimeout(() => {
+    const nextQuestionIndex = currentQuestionIndex + 1;
+
+    if (nextQuestionIndex < questions.length) {
+      // Get the next question from the questions array
+      const nextQuestion = questions[nextQuestionIndex];
+      
+      console.log("[Interview] Loading next question:", {
+        index: nextQuestionIndex,
+        totalQuestions: questions.length,
+        question: nextQuestion
+      });
+
+      const aiMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "ai",
+        content: 
+          nextQuestion.question?.text || 
+          nextQuestion.text || 
+          nextQuestion || 
+          "Please continue...",
+        timestamp: new Date(),
+      };
+      
+      setMessages((prev) => [...prev, aiMessage]);
+      setCurrentQuestionIndex(nextQuestionIndex);
+    } else {
+      // All questions answered
+      const completionMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "ai",
+        content:
+          "Thank you for completing all the interview questions! Your responses have been recorded. You may now end the interview.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, completionMessage]);
+    }
+
+    setIsAITyping(false);
+  }, 2000);
+};
   const handleKeyPress = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -502,63 +742,83 @@ export default function InterviewStartPage({ params }) {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  if (sessionExpired) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="p-6 space-y-4">
-            <div className="text-center">
-              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Session Expired
-              </h2>
-              <p className="text-gray-600 mb-4">
-                Your interview session has expired. Please restart.
-              </p>
-              <Button
-                onClick={() => router.push(`/interview/${interviewToken}`)}
-                className="w-full"
-              >
-                Restart Interview
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  // Add debug at the start of render
+  console.log("[Interview] === RENDER START ===");
+  console.log("[Interview] Current state:", {
+    interviewType,
+    typeLoading,
+    loading,
+    sessionExpired
+  });
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Initializing interview...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading while type is being determined
+  // Show loading while type is being determined - FIRST CHECK
   if (typeLoading) {
+    console.log("[Interview] Rendering type loading screen");
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-slate-700 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading interview...</p>
+          <p className="text-gray-600">Detecting interview type...</p>
         </div>
       </div>
     );
   }
 
-  // Show audio interview if type is audio
+  // Show audio interview if type is audio - MUST COME BEFORE OTHER CHECKS
   if (interviewType === "audio") {
+    console.log("[Interview] === ROUTING TO AUDIO INTERVIEW ===");
+    console.log("[Interview] Params:", params);
     return <AudioInterviewPage params={params} />;
   }
 
-  const progress = ((currentQuestionIndex + 1) / Math.max(questions.length, 1)) * 100;
+  // Only process if type is text
+  if (interviewType === "text") {
+    console.log("[Interview] Processing text interview");
+    
+    if (sessionExpired) {
+      console.log("[Interview] Rendering session expired screen");
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6 space-y-4">
+              <div className="text-center">
+                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                <h2 className="text-xl font-bold text-gray-900 mb-2">
+                  Session Expired
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  Your interview session has expired. Please restart.
+                </p>
+                <Button
+                  onClick={() => router.push(`/interview/${interviewToken}`)}
+                  className="w-full"
+                >
+                  Restart Interview
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
 
-  return (
+    if (loading) {
+      console.log("[Interview] Rendering text interview loading screen");
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+            <p className="text-gray-600">Initializing text interview...</p>
+          </div>
+        </div>
+      );
+    }
+    
+    // Render text interview - only if type is explicitly text
+    console.log("[Interview] Rendering text interview interface");
+    const progress = ((currentQuestionIndex + 1) / Math.max(questions.length, 1)) * 100;
+    
+    return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
       {/* Top Bar */}
       <div className="h-14 border-b border-gray-200 bg-white flex items-center justify-between px-4">
@@ -848,6 +1108,29 @@ export default function InterviewStartPage({ params }) {
           </Card>
         </div>
       )}
+    </div>
+    );
+  }
+
+  // Fallback - if interviewType is not set or unknown
+  console.log("[Interview] Unknown interview type or state:", interviewType);
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">
+          Interview Type Unknown
+        </h2>
+        <p className="text-gray-600 mb-4">
+          Could not determine interview type: {interviewType}
+        </p>
+        <Button
+          onClick={() => window.location.reload()}
+          className="w-full"
+        >
+          Refresh Page
+        </Button>
+      </div>
     </div>
   );
 }

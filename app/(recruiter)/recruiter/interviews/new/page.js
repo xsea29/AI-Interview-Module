@@ -24,7 +24,10 @@ import {
   Share2,
   Link as LinkIcon,
   Check,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  Edit,
+  Video
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -102,6 +105,10 @@ const CreateInterview = () => {
   // Dialog states
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [linksDialogOpen, setLinksDialogOpen] = useState(false);
+  const [modeChangeDialog, setModeChangeDialog] = useState({
+    open: false,
+    newMode: null
+  });
   
   // Fetch initial data
   useEffect(() => {
@@ -340,6 +347,165 @@ const CreateInterview = () => {
         description: error.message || "Failed to send invite",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleModeChangeClick = (newMode) => {
+    if (questions.length > 0 && formData.config.interviewMode !== newMode) {
+      setModeChangeDialog({
+        open: true,
+        newMode: newMode
+      });
+    } else {
+      handleUpdateInterviewMode(newMode);
+    }
+  };
+  
+  const handleUpdateInterviewMode = async (newMode) => {
+    if (!interviewId) {
+      toast({
+        title: "No Interview Found",
+        description: "Please create an interview first",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (formData.config.interviewMode === newMode) {
+      return; // Already in this mode
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      // Update local state first for immediate UI feedback
+      setFormData(prev => ({
+        ...prev,
+        config: {
+          ...prev.config,
+          interviewMode: newMode
+        }
+      }));
+      
+      // Check if we need to update questions for the new mode
+      let shouldRegenerateQuestions = false;
+      if (questions.length > 0) {
+        // Ask user if they want to regenerate questions for the new mode
+        const userConfirmed = window.confirm(
+          `Switch from ${formData.config.interviewMode} to ${newMode} interview? ` +
+          `This will regenerate questions optimized for ${newMode} responses.`
+        );
+        shouldRegenerateQuestions = userConfirmed;
+      }
+      
+      // Update interview type on backend
+      const response = await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          config: {
+            interviewMode: newMode,
+            // Add mode-specific configs
+            ...(newMode === 'audio' && {
+              enableAudioRecording: true,
+              audioQuality: 'high',
+              timePerQuestion: 5, // Adjust for audio
+            }),
+            ...(newMode === 'text' && {
+              enableAudioRecording: false,
+              timePerQuestion: formData.config.timePerQuestion,
+            })
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update interview mode');
+      }
+      
+      const data = await response.json();
+      
+      // Update interview details
+      setInterviewDetails(data?.data?.interview || {});
+      
+      // Regenerate questions if needed
+      if (shouldRegenerateQuestions) {
+        toast({
+          title: "Regenerating Questions",
+          description: `Generating questions optimized for ${newMode} interview...`,
+        });
+        
+        // Delete existing questions
+        await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}/questions`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        // Generate new questions for the new mode
+        const questionsResponse = await fetch(`http://localhost:5000/api/v1/interviews/${interviewId}/generate-questions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            interviewType: newMode,
+            ...(newMode === 'audio' && {
+              questionFormat: 'conversational',
+              maxResponseTime: 120,
+            }),
+            ...(newMode === 'text' && {
+              questionFormat: 'detailed',
+              maxResponseLength: 500,
+            })
+          }),
+        });
+        
+        if (questionsResponse.ok) {
+          const questionsData = await questionsResponse.json();
+          setQuestions(questionsData?.data?.questions || []);
+          
+          toast({
+            title: "Mode Updated",
+            description: `Interview switched to ${newMode} mode with new questions`,
+          });
+        }
+      } else {
+        toast({
+          title: "Mode Updated",
+          description: `Interview switched to ${newMode} mode`,
+        });
+      }
+      
+      // Refresh interview details to get updated link
+      await fetchInterviewDetails();
+      
+    } catch (error) {
+      // Revert local state on error
+      setFormData(prev => ({
+        ...prev,
+        config: {
+          ...prev.config,
+          interviewMode: formData.config.interviewMode // Revert to previous mode
+        }
+      }));
+      
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -1674,6 +1840,158 @@ const CreateInterview = () => {
                     </div>
                   </div>
 
+                  {/* Interview Mode Configuration Card */}
+                  <div className="p-4 border rounded-lg bg-muted/20">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold">Interview Mode</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {formData.config.interviewMode === 'text' 
+                            ? 'Text-based written responses'
+                            : formData.config.interviewMode === 'audio'
+                            ? 'Audio-based spoken responses'
+                            : 'Video-based responses with camera'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant={formData.config.interviewMode === 'text' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleModeChangeClick('text')}
+                          disabled={isLoading}
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          Text
+                        </Button>
+                        <Button
+                          variant={formData.config.interviewMode === 'audio' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleModeChangeClick('audio')}
+                          disabled={isLoading}
+                        >
+                          <Mic className="h-4 w-4 mr-1" />
+                          Audio
+                        </Button>
+                        <Button
+                          variant={formData.config.interviewMode === 'video' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleModeChangeClick('video')}
+                          disabled={isLoading}
+                        >
+                          <Video className="h-4 w-4 mr-1" />
+                          Video
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {interviewDetails?.interviewType && interviewDetails.interviewType !== formData.config.interviewMode && (
+                      <Alert className="mt-3">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                          Interview was created as <strong>{interviewDetails.interviewType}</strong>. 
+                          Click the button above to change the interview mode.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+
+                  {/* Mode-specific configuration */}
+                  {formData.config.interviewMode === 'audio' && (
+                    <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Mic className="h-5 w-5 text-blue-600" />
+                        <h3 className="font-semibold text-blue-800">Audio Interview Settings</h3>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Audio Quality</Label>
+                          <Select
+                            value={formData.config.audioQuality || 'high'}
+                            onValueChange={(value) => handleInputChange('config.audioQuality', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="standard">Standard (recommended)</SelectItem>
+                              <SelectItem value="high">High Quality</SelectItem>
+                              <SelectItem value="studio">Studio Quality</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Max Response Time (seconds)</Label>
+                          <Select
+                            value={formData.config.maxAudioResponseTime?.toString() || '120'}
+                            onValueChange={(value) => handleInputChange('config.maxAudioResponseTime', parseInt(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="60">60 seconds</SelectItem>
+                              <SelectItem value="120">2 minutes</SelectItem>
+                              <SelectItem value="180">3 minutes</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-700">
+                        <p>✓ Candidates will record audio responses to questions</p>
+                        <p>✓ System will transcribe and analyze responses</p>
+                        <p>✓ Better for assessing communication skills</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.config.interviewMode === 'text' && (
+                    <div className="p-4 border border-green-200 rounded-lg bg-green-50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Edit className="h-5 w-5 text-green-600" />
+                        <h3 className="font-semibold text-green-800">Text Interview Settings</h3>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Response Format</Label>
+                          <Select
+                            value={formData.config.responseFormat || 'paragraph'}
+                            onValueChange={(value) => handleInputChange('config.responseFormat', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="paragraph">Paragraph</SelectItem>
+                              <SelectItem value="bullet">Bullet Points</SelectItem>
+                              <SelectItem value="code">Code/Technical</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Max Response Length</Label>
+                          <Select
+                            value={formData.config.maxResponseLength?.toString() || '500'}
+                            onValueChange={(value) => handleInputChange('config.maxResponseLength', parseInt(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="250">250 characters</SelectItem>
+                              <SelectItem value="500">500 characters</SelectItem>
+                              <SelectItem value="1000">1000 characters</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-700">
+                        <p>✓ Candidates will type written responses</p>
+                        <p>✓ Better for technical/coding assessments</p>
+                        <p>✓ Easy to review and compare answers</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Time per Question *</Label>
@@ -1776,6 +2094,37 @@ const CreateInterview = () => {
                           Share this link with candidates. Each candidate will authenticate with their email.
                         </p>
                       </div>
+
+                      {/* Mode-specific instructions */}
+                      {interviewDetails?.interviewType === 'audio' && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mt-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Mic className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-800">Audio Interview Instructions</span>
+                          </div>
+                          <ul className="text-xs text-blue-700 space-y-1">
+                            <li>• Ensure candidates have a working microphone</li>
+                            <li>• Recommend using headphones for better audio quality</li>
+                            <li>• Test audio before starting the interview</li>
+                            <li>• Each response is limited to {formData.config.maxAudioResponseTime || 120} seconds</li>
+                          </ul>
+                        </div>
+                      )}
+
+                      {interviewDetails?.interviewType === 'text' && (
+                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg mt-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Edit className="h-4 w-4 text-green-600" />
+                            <span className="text-sm font-medium text-green-800">Text Interview Instructions</span>
+                          </div>
+                          <ul className="text-xs text-green-700 space-y-1">
+                            <li>• No special equipment needed</li>
+                            <li>• Candidates can take time to formulate responses</li>
+                            <li>• Better for technical/written assessments</li>
+                            <li>• Each response limited to {formData.config.maxResponseLength || 500} characters</li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1939,6 +2288,54 @@ const CreateInterview = () => {
         </div>
       </div>
       
+      {/* Mode Change Confirmation Dialog */}
+      <Dialog open={modeChangeDialog.open} onOpenChange={(open) => setModeChangeDialog({ ...modeChangeDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Interview Mode?</DialogTitle>
+            <DialogDescription>
+              You already have {questions.length} question{questions.length !== 1 ? 's' : ''} in this interview.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <div className="space-y-2">
+                <div className="font-medium">Changing the interview mode will:</div>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li>Regenerate all interview questions</li>
+                  <li>Reset existing candidate responses</li>
+                  <li>Update scoring criteria</li>
+                </ul>
+              </div>
+            </AlertDescription>
+          </Alert>
+
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setModeChangeDialog({ ...modeChangeDialog, open: false })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                await handleUpdateInterviewMode(modeChangeDialog.newMode);
+                setModeChangeDialog({ ...modeChangeDialog, open: false });
+              }}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Change Mode
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialogs */}
       {renderShareDialog()}
       {renderLinksDialog()}
