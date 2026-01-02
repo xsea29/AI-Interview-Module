@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import candidateService from "@/services/candidate.service";
 
 
 const API_BASE_URL = "http://localhost:5000/api/v1";
@@ -254,48 +255,46 @@ const AddCandidateModal = ({ open, onOpenChange, onSuccess }) => {
 
   const uploadResume = async (candidateId, resumeFile) => {
     try {
-      const token = localStorage.getItem('accessToken');
-      const formDataToSend = new FormData();
-      formDataToSend.append('resume', resumeFile);
+      // Use candidateService to upload and parse resume
+      const result = await candidateService.uploadAndParseResume(
+        candidateId, 
+        resumeFile,
+        true // Auto-update personal info from resume
+      );
 
-      const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formDataToSend,
-      });
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        const errorMessage = responseData?.message || responseData?.errors?.[0]?.message || 'Failed to upload resume';
-        console.warn('Resume upload failed:', errorMessage);
+      // Check if parsing was successful
+      if (result?.parseResult?.success) {
+        const skillsCount = result.parseResult.skillsExtracted || 0;
+        const matchScore = result.parseResult.matchScore || 0;
         
-        // Show warning toast but don't fail the whole operation
         toast({
-          title: "Resume Upload Warning",
-          description: errorMessage,
-          variant: "destructive",
+          title: "Resume Processed Successfully",
+          description: `Extracted ${skillsCount} skills. Match score: ${matchScore}%`,
         });
-        return;
-      }
-
-      // Success - show optional success message
-      if (responseData?.data?.parsedData) {
+      } else if (result?.candidate?.resume?.url) {
+        // Resume uploaded but not parsed (parsing might be disabled)
         toast({
-          title: "Resume Parsed Successfully",
-          description: "Resume data has been extracted and analyzed.",
+          title: "Resume Uploaded",
+          description: "Resume has been uploaded successfully.",
         });
       }
     } catch (error) {
-      console.warn('Error uploading resume:', error.message);
-      // Don't fail the whole operation if resume upload fails
-      toast({
-        title: "Resume Processing Note",
-        description: "Candidate created, but resume processing encountered an issue.",
-        variant: "destructive",
-      });
+      console.warn('Error processing resume:', error.message);
+      
+      // Check if error is due to parsing being disabled
+      if (error.message?.includes('disabled')) {
+        toast({
+          title: "Resume Upload Successful",
+          description: "Resume has been uploaded. Parsing is currently disabled.",
+        });
+      } else {
+        // Don't fail the whole operation if resume upload fails
+        toast({
+          title: "Resume Upload Warning",
+          description: error.message || "Resume processing encountered an issue, but candidate was created.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -452,6 +451,7 @@ const AddCandidateModal = ({ open, onOpenChange, onSuccess }) => {
 
               <div className="space-y-2">
                 <Label>Upload Resume (PDF, DOCX, DOC - Optional)</Label>
+                <p className="text-xs text-muted-foreground">Resume will be automatically parsed to extract skills, experience, and education</p>
                 <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
                   loading ? 'border-muted bg-muted/50 cursor-not-allowed' : 'border-border hover:border-accent/50 cursor-pointer'
                 }`}>
@@ -467,7 +467,7 @@ const AddCandidateModal = ({ open, onOpenChange, onSuccess }) => {
                     <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-sm text-muted-foreground">
                       {formData.resume 
-                        ? formData.resume.name 
+                        ? `✓ ${formData.resume.name}` 
                         : loading 
                           ? "Processing..." 
                           : "Click to upload or drag and drop"}
