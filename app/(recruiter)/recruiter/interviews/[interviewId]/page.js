@@ -437,8 +437,39 @@ const InterviewDetail = () => {
       const token = localStorage.getItem('accessToken');
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       
+      // Check if interview has a report ID
+      if (!interview?.reportId) {
+        // Try to create/fetch report first
+        try {
+          const reportResponse = await fetch(
+            `${API_BASE_URL}/reports/from-interview/${interviewId}`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ interviewId }),
+            }
+          );
+          
+          if (!reportResponse.ok) {
+            throw new Error('Could not create/fetch report');
+          }
+          
+          const reportData = await reportResponse.json();
+          console.log("Report created/fetched:", reportData);
+        } catch (reportError) {
+          console.warn("Report creation attempt failed:", reportError);
+          // Continue anyway - try to use the interview ID
+        }
+      }
+
+      const reportIdToUse = interview?.reportId || interviewId;
+      
+      // Make decision on the report using addReview endpoint
       const response = await fetch(
-        `${API_BASE_URL}/interviews/${interviewId}/decision`,
+        `${API_BASE_URL}/reports/${reportIdToUse}/reviews`,
         {
           method: 'POST',
           headers: {
@@ -446,10 +477,9 @@ const InterviewDetail = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            organizationId: user.organizationId,
-            status: decision,
+            decision: decision,
             notes: decisionNotes,
-            decidedBy: user._id
+            reviewerRole: user.role || 'recruiter'
           }),
         }
       );

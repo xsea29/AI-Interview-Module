@@ -30,6 +30,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import AddCandidateModal from "@/components/modals/AddCandidateModal";
 import CandidateActionsMenu from "@/components/modals/CandidateActionsMenu";
+import candidateService from "@/services/candidate.service";
 
 const API_BASE_URL = "http://localhost:5000/api/v1";
 
@@ -90,6 +91,7 @@ const Candidates = () => {
   const [showAddCandidate, setShowAddCandidate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [parsingCandidateId, setParsingCandidateId] = useState(null);
   const { toast } = useToast();
 
   // Fetch candidates and stats
@@ -250,6 +252,44 @@ const Candidates = () => {
         description: err.message,
         variant: "destructive",
       });
+    }
+  };
+
+  const handleParseResume = async (candidateId) => {
+    try {
+      setParsingCandidateId(candidateId);
+      
+      // Check if candidate has resume
+      const candidate = candidates.find(c => c._id === candidateId);
+      if (!candidate?.resume?.url) {
+        toast({
+          title: "No Resume",
+          description: "This candidate has no resume uploaded. Please upload one first.",
+          variant: "destructive",
+        });
+        setParsingCandidateId(null);
+        return;
+      }
+
+      // Parse the resume
+      await candidateService.parseExistingResume(candidateId, true);
+      
+      // Refresh candidates list
+      fetchCandidates();
+      fetchStats();
+      
+      toast({
+        title: "Success",
+        description: "Resume parsed successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Parsing Failed",
+        description: error.message || "Failed to parse resume",
+        variant: "destructive",
+      });
+    } finally {
+      setParsingCandidateId(null);
     }
   };
 
@@ -455,11 +495,26 @@ const Candidates = () => {
                               </div>
                               
                               <div className="flex items-center gap-2">
-  <Button variant="outline" size="sm">
+  <Button 
+    variant="outline" 
+    size="sm"
+    onClick={() => router.push(`/recruiter/candidates/${candidate._id}`)}
+    title="View Profile"
+  >
     <Mail className="h-4 w-4" />
   </Button>
-  <Button variant="outline" size="sm">
-    <FileText className="h-4 w-4" />
+  <Button 
+    variant="outline" 
+    size="sm"
+    onClick={() => handleParseResume(candidate._id)}
+    disabled={parsingCandidateId === candidate._id}
+    title="Parse Resume"
+  >
+    {parsingCandidateId === candidate._id ? (
+      <Loader2 className="h-4 w-4 animate-spin" />
+    ) : (
+      <FileText className="h-4 w-4" />
+    )}
   </Button>
   <CandidateActionsMenu
     candidateId={candidate._id}

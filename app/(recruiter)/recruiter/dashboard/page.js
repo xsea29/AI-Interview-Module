@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { mockReports } from "@/types/report";
 
 const stats = [
   {
@@ -83,29 +84,20 @@ const upcomingInterviews = [
   },
 ];
 
-const recentReports = [
-  {
-    candidate: "David Kim",
-    role: "Backend Developer",
-    score: 85,
-    recommendation: "strong_hire",
-    completedAt: "2 hours ago",
-  },
-  {
-    candidate: "Lisa Wang",
-    role: "Data Analyst",
-    score: 72,
-    recommendation: "hire",
-    completedAt: "5 hours ago",
-  },
-  {
-    candidate: "James Wilson",
-    role: "Frontend Developer",
-    score: 58,
-    recommendation: "no_hire",
-    completedAt: "1 day ago",
-  },
-];
+// Get 3 most recent reports from mock data
+const recentReports = mockReports
+  .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
+  .slice(0, 3)
+  .map(report => ({
+    candidate: report.candidate,
+    role: report.role,
+    score: report.overallScore.score,
+    recommendation: report.recommendation,
+    completedAt: new Date(report.completedAt).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric'
+    }),
+  }));
 
 const RecruiterDashboard = () => {
   return (
@@ -118,7 +110,7 @@ const RecruiterDashboard = () => {
             <p className="text-muted-foreground mt-1">Welcome back, Jane! Here&apos;s your hiring overview.</p>
           </div>
           <Link href="/recruiter/interviews/new" legacyBehavior>
-            <Button className="bg-accent text-accent-foreground">
+            <Button variant="accent">
               <Plus className="h-4 w-4 mr-2" />
               Create Interview
             </Button>
