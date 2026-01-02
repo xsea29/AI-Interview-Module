@@ -38,6 +38,7 @@ import {
   Clock as ClockIcon,
   Users,
   Plus,
+  X,
 } from "lucide-react";
 import RecruiterLayout from "@/components/layouts/RecruiterLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,9 +61,9 @@ import {
 } from "@/components/ui/tooltip";
 import SendMessageSheet from "@/components/communication/SendMessageSheet";
 import SendEmailModal from "@/components/communication/SendEmailModal";
+import ResumeUploadParser from "@/components/candidates/ResumeUploadParser";
 import { useToast } from "@/hooks/use-toast";
-// import ResumeUploadModal from "@/components/modals/ResumeUploadModal";
-// import ResumeParseModal from "@/components/modals/ResumeParseModal";
+import candidateService from "@/services/candidate.service";
 
 const API_BASE_URL = "http://localhost:5000/api/v1";
 
@@ -122,12 +124,26 @@ export default function CandidateProfile({ params }) {
   const [candidateData, setCandidateData] = useState(null);
   const [interviews, setInterviews] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [report, setReport] = useState(null);
 
   useEffect(() => {
     if (candidateId) {
       fetchCandidateData();
     }
   }, [candidateId]);
+
+  // Refetch report periodically
+  useEffect(() => {
+    if (candidateData?._id) {
+      const token = localStorage.getItem('accessToken');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const interval = setInterval(() => {
+        fetchCandidateReport(candidateData._id, user.organizationId, token);
+      }, 3000); // Refetch every 3 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [candidateData?._id]);
 
   const fetchCandidateData = async () => {
     try {
@@ -153,6 +169,11 @@ export default function CandidateProfile({ params }) {
       setCandidateData(data?.data?.candidate);
       setInterviews(data?.data?.interviews || []);
       setNotes(data?.data?.candidate?.notes || []);
+      
+      // Fetch associated report
+      if (data?.data?.candidate) {
+        fetchCandidateReport(data.data.candidate._id, user.organizationId, token);
+      }
     } catch (err) {
       console.error('Error fetching candidate data:', err);
       toast({
@@ -162,6 +183,30 @@ export default function CandidateProfile({ params }) {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCandidateReport = async (candId, organizationId, token) => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/reports?search=${candId}&organizationId=${organizationId}&limit=1`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.data?.reports && data.data.reports.length > 0) {
+          setReport(data.data.reports[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching candidate report:', err);
+      // Don't show error toast for optional report fetch
     }
   };
 
@@ -241,88 +286,14 @@ export default function CandidateProfile({ params }) {
     }
   };
 
-  const handleResumeUpload = async (file) => {
-    try {
-      const token = localStorage.getItem('accessToken');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('organizationId', user.organizationId);
-
-      const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload resume');
-      }
-
-      const data = await response.json();
-      setCandidateData(prev => ({ 
-        ...prev, 
-        resume: data.data.resume 
-      }));
-      
-      toast({
-        title: "Success",
-        description: "Resume uploaded successfully",
-      });
-      setShowResumeUpload(false);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
-    }
+  const handleParsingComplete = (result) => {
+    // Update candidate data with parsing results
+    fetchCandidateData();
+    setShowResumeUpload(false);
   };
 
-  const handleResumeParse = async (updatePersonalInfo = false) => {
-    try {
-      const token = localStorage.getItem('accessToken');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      
-      const response = await fetch(`${API_BASE_URL}/candidates/${candidateId}/resume/parse`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          organizationId: user.organizationId,
-          updatePersonalInfo,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to parse resume');
-      }
-
-      const data = await response.json();
-      setCandidateData(prev => ({ 
-        ...prev, 
-        resume: data.data.candidate.resume,
-        matchScore: data.data.candidate.matchScore,
-        personalInfo: data.data.candidate.personalInfo
-      }));
-      
-      toast({
-        title: "Success",
-        description: `Parsed ${data.data.parseResult.skillsExtracted} skills from resume`,
-      });
-      setShowResumeParse(false);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
-    }
+  const handleParsingError = (error) => {
+    console.error('Resume parsing error:', error);
   };
 
   if (loading) {
@@ -752,6 +723,69 @@ export default function CandidateProfile({ params }) {
               </Card>
             )}
 
+            {/* AI Report Decision */}
+            {report && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-accent" />
+                    AI Report Decision
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Overall Score */}
+                  <div>
+                    <div className="flex items-center justify-between text-sm mb-2">
+                      <span className="text-muted-foreground">Overall Score</span>
+                      <span className="font-bold text-lg text-foreground">{report.overallScore?.score || 0}%</span>
+                    </div>
+                    <Progress value={report.overallScore?.score || 0} className="h-2" />
+                  </div>
+
+                  {/* Recommendation */}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">AI Recommendation</p>
+                    <Badge 
+                      variant={
+                        report.recommendation === 'strong_hire' ? 'success' :
+                        report.recommendation === 'hire' ? 'info' :
+                        report.recommendation === 'borderline' ? 'warning' : 'destructive'
+                      }
+                      className="text-sm"
+                    >
+                      {report.recommendation === 'strong_hire' ? '🎯 Strong Hire' :
+                       report.recommendation === 'hire' ? '✓ Hire' :
+                       report.recommendation === 'borderline' ? '⚠️ Borderline' : '✗ No Hire'}
+                    </Badge>
+                  </div>
+
+                  {/* Latest Review/Decision */}
+                  {report.reviews && report.reviews.length > 0 && (
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-xs text-muted-foreground mb-2">Latest Decision</p>
+                      <div className="p-2 bg-muted/50 rounded-lg">
+                        <p className="text-sm font-medium text-foreground">
+                          {report.reviews[0]?.decision?.replace(/_/g, ' ').toUpperCase() || 'No decision yet'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          By {report.reviews[0]?.reviewerName} • {new Date(report.reviews[0]?.reviewedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button 
+                    variant="outline" 
+                    className="w-full mt-2"
+                    onClick={() => window.open(`/recruiter/reports?candidate=${candidateData._id}`, '_blank')}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    View Full Report
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Job Info */}
             <Card>
               <CardHeader>
@@ -956,19 +990,103 @@ export default function CandidateProfile({ params }) {
         onOpenChange={setShowEmailModal} 
         candidate={candidateData} 
       />
-      {/* <ResumeUploadModal
-        open={showResumeUpload}
-        onOpenChange={setShowResumeUpload}
-        candidate={candidateData}
-        onUpload={handleResumeUpload}
-      /> */}
-      {/* <ResumeParseModal
-        open={showResumeParse}
-        onOpenChange={setShowResumeParse}
-        candidate={candidateData}
-        onParse={() => handleResumeParse(true)}
-        onReparse={() => handleResumeParse(true)}
-      /> */}
+      
+      {/* Resume Upload & Parser Modal */}
+      {showResumeUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Upload & Parse Resume</h2>
+                <button
+                  onClick={() => setShowResumeUpload(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <ResumeUploadParser
+                candidateId={candidateId}
+                onParsingComplete={handleParsingComplete}
+                onError={handleParsingError}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Resume Parse Modal */}
+      {showResumeParse && candidateData.resume?.url && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">Parse Existing Resume</h2>
+                <button
+                  onClick={() => setShowResumeParse(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <p className="text-muted-foreground">
+                  Parse the resume to extract structured data including skills, experience, education, and certifications.
+                </p>
+                
+                <div className="p-4 rounded-lg bg-muted/50 border border-border">
+                  <p className="text-sm font-medium">Resume</p>
+                  <p className="text-sm text-muted-foreground mt-1">{candidateData.resume.filename || 'Resume file'}</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox 
+                    id="update-parse-info"
+                    defaultChecked={true}
+                  />
+                  <label htmlFor="update-parse-info" className="text-sm cursor-pointer">
+                    Update candidate's personal information from resume
+                  </label>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowResumeParse(false)}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await candidateService.parseExistingResume(candidateId, true);
+                        toast({
+                          title: "Success",
+                          description: "Resume parsed successfully",
+                        });
+                        setShowResumeParse(false);
+                        fetchCandidateData();
+                      } catch (error) {
+                        toast({
+                          title: "Error",
+                          description: error.message,
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    className="flex-1"
+                  >
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                    Parse Resume
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </RecruiterLayout>
   );
 }
