@@ -251,6 +251,19 @@ const InterviewDetail = () => {
     }
   }, [interviewId]);
 
+  // Poll for report status updates when interview is completed and report is processing
+  useEffect(() => {
+    if (!interview || interview.status !== INTERVIEW_STATUS.COMPLETED) return;
+    if (!report || report.status === 'completed' || report.status === 'failed') return;
+
+    // Poll every 3 seconds
+    const interval = setInterval(() => {
+      fetchInterviewDetails();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [interview?.status, report?.status, interviewId]);
+
   const fetchInterviewDetails = async () => {
     try {
       setLoading(true);
@@ -1313,26 +1326,94 @@ const InterviewDetail = () => {
             {interview.status === INTERVIEW_STATUS.COMPLETED && (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Bot className="h-4 w-4" />
-                    AI Evaluation
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Bot className="h-4 w-4" />
+                      AI Evaluation
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {report?.status === 'processing' && (
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={fetchInterviewDetails}
+                          disabled
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                          Checking...
+                        </Button>
+                      )}
+                      {report?.status && report.status !== 'processing' && (
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={fetchInterviewDetails}
+                          title="Refresh evaluation status"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  <Badge 
-                    variant={
-                      report?.status === 'completed' ? "success" :
-                      report?.status === 'processing' ? "warning" :
-                      report?.status === 'failed' ? "destructive" : "secondary"
-                    }
-                    className="capitalize"
-                  >
-                    {report?.status || 'not_started'}
-                  </Badge>
-                  {report?.generatedAt && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Generated: {formatDate(report.generatedAt)}
-                    </p>
+                <CardContent className="space-y-3">
+                  {report ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant={
+                            report.status === 'completed' ? "success" :
+                            report.status === 'processing' ? "warning" :
+                            report.status === 'failed' ? "destructive" : "secondary"
+                          }
+                        >
+                          {report.status === 'processing' ? 'Processing' :
+                           report.status === 'completed' ? 'Completed' :
+                           report.status === 'failed' ? 'Failed' : 'Pending'}
+                        </Badge>
+                      </div>
+                      
+                      {report.status === 'processing' && (
+                        <div className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 border border-muted-foreground/20">
+                          <p>📊 Report is being generated. This will auto-refresh every 3 seconds.</p>
+                        </div>
+                      )}
+                      
+                      {report.generatedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Generated: {formatDate(report.generatedAt)}
+                        </p>
+                      )}
+                      
+                      {report.status === 'completed' && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="w-full mt-2"
+                          onClick={() => {
+                            // Handle view report action
+                            toast({
+                              title: "Report",
+                              description: "Opening detailed evaluation report...",
+                            });
+                          }}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          View Detailed Report
+                        </Button>
+                      )}
+                      
+                      {report.status === 'failed' && (
+                        <p className="text-xs text-destructive bg-destructive/10 rounded px-3 py-2 border border-destructive/20">
+                          ⚠️ Report generation failed. Please try again.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm text-muted-foreground py-4">
+                      <p>⏳ Generating AI evaluation report...</p>
+                      <p className="text-xs mt-1">This may take a few moments.</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>

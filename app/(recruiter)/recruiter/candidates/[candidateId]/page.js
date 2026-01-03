@@ -67,6 +67,37 @@ import candidateService from "@/services/candidate.service";
 
 const API_BASE_URL = "http://localhost:5000/api/v1";
 
+/**
+ * Safely parse and format a date string
+ * @param {string|Date} dateStr - The date string or Date object to parse
+ * @param {string} format - 'date', 'time', or 'both' (default: 'date')
+ * @returns {string} - Formatted date string or empty string if invalid
+ */
+const formatDate = (dateStr, format = 'date') => {
+  if (!dateStr) return '--';
+  
+  try {
+    const date = new Date(dateStr);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date:', dateStr);
+      return '--';
+    }
+
+    if (format === 'time') {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (format === 'both') {
+      return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    
+    return date.toLocaleDateString();
+  } catch (error) {
+    console.warn('Error formatting date:', dateStr, error);
+    return '--';
+  }
+};
+
 const CANDIDATE_STATUS = {
   NEW: 'new',
   SCREENING: 'screening',
@@ -328,8 +359,8 @@ export default function CandidateProfile({ params }) {
   const timeline = candidateData.statusHistory?.map((history, index) => ({
     id: index + 1,
     event: `Status changed to ${history.status}`,
-    date: new Date(history.createdAt).toLocaleDateString(),
-    time: new Date(history.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    date: formatDate(history.createdAt, 'date'),
+    time: formatDate(history.createdAt, 'time'),
     owner: history.changedBy?.profile?.name || 'System',
     status: "completed",
     notes: history.note,
@@ -340,8 +371,8 @@ export default function CandidateProfile({ params }) {
     timeline.push({
       id: timeline.length + index + 1,
       event: interview.status === 'SCHEDULED' ? 'Interview Scheduled' : 'Interview Completed',
-      date: new Date(interview.scheduling?.scheduledAt || interview.createdAt).toLocaleDateString(),
-      time: interview.scheduling?.scheduledAt ? new Date(interview.scheduling.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      date: formatDate(interview.scheduling?.scheduledAt || interview.createdAt, 'date'),
+      time: interview.scheduling?.scheduledAt ? formatDate(interview.scheduling.scheduledAt, 'time') : '',
       owner: 'Recruiter',
       status: interview.status === 'COMPLETED' ? 'completed' : 'current',
       notes: `${interview.status} interview for ${candidateData.jobId?.title || 'position'}`,
@@ -474,7 +505,7 @@ export default function CandidateProfile({ params }) {
                   <div>
                     <p className="font-semibold text-foreground">{candidateData.personalInfo.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      Applied {new Date(candidateData.createdAt).toLocaleDateString()}
+                      Applied {formatDate(candidateData.createdAt, 'date')}
                     </p>
                   </div>
                 </div>
@@ -811,7 +842,7 @@ export default function CandidateProfile({ params }) {
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">
-                    Applied {new Date(candidateData.createdAt).toLocaleDateString()}
+                    Applied {formatDate(candidateData.createdAt, 'date')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -839,7 +870,7 @@ export default function CandidateProfile({ params }) {
                       <p className="text-sm text-foreground">{note.text}</p>
                       <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                         <span>{note.createdBy?.profile?.name || 'Unknown'}</span>
-                        <span>{new Date(note.createdAt).toLocaleDateString()}</span>
+                        <span>{formatDate(note.createdAt, 'date')}</span>
                       </div>
                     </div>
                   ))}

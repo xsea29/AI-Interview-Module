@@ -560,13 +560,13 @@ const Candidates = () => {
                                   const skillName = typeof skill === 'string' ? skill : (skill?.name || '');
                                   if (!skillName) return null;
                                   return (
-                                    <Badge key={skill._id || skill.name || skill} variant="secondary" className="text-xs">
+                                    <Badge key={skill._id || skill.name || skill} variant="secondary" className="text-xs rounded-full">
                                       {skillName}
                                     </Badge>
                                   );
                                 })}
                                 {candidate.skills.length > 3 && (
-                                  <Badge variant="outline" className="text-xs">
+                                  <Badge variant="outline" className="text-xs rounded-full">
                                     +{candidate.skills.length - 3} more
                                   </Badge>
                                 )}
