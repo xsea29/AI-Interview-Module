@@ -556,11 +556,15 @@ const Candidates = () => {
 
                             {candidate.skills && candidate.skills.length > 0 && (
                               <div className="flex items-center gap-2 mt-4">
-                                {candidate.skills.slice(0, 3).map((skill) => (
-                                  <Badge key={skill} variant="secondary" className="text-xs">
-                                    {skill}
-                                  </Badge>
-                                ))}
+                                {candidate.skills.slice(0, 3).map((skill) => {
+                                  const skillName = typeof skill === 'string' ? skill : (skill?.name || '');
+                                  if (!skillName) return null;
+                                  return (
+                                    <Badge key={skill._id || skill.name || skill} variant="secondary" className="text-xs">
+                                      {skillName}
+                                    </Badge>
+                                  );
+                                })}
                                 {candidate.skills.length > 3 && (
                                   <Badge variant="outline" className="text-xs">
                                     +{candidate.skills.length - 3} more

@@ -585,11 +585,15 @@ export default function CandidateProfile({ params }) {
                   <div>
                     <h4 className="text-sm font-medium mb-2">Skills from Resume</h4>
                     <div className="flex flex-wrap gap-2">
-                      {candidateData.resume.parsedData.skills.slice(0, 10).map((skill) => (
-                        <Badge key={skill} variant="secondary">
-                          {skill}
-                        </Badge>
-                      ))}
+                      {candidateData.resume.parsedData.skills.slice(0, 10).map((skill) => {
+                        const skillName = typeof skill === 'string' ? skill : (skill?.name || '');
+                        if (!skillName) return null;
+                        return (
+                          <Badge key={typeof skill === 'string' ? skill : skill._id || skill.name} variant="secondary">
+                            {skillName}
+                          </Badge>
+                        );
+                      })}
                       {candidateData.resume.parsedData.skills.length > 10 && (
                         <Badge variant="outline">
                           +{candidateData.resume.parsedData.skills.length - 10} more
@@ -663,11 +667,15 @@ export default function CandidateProfile({ params }) {
                         <h4 className="text-sm font-medium">Certifications</h4>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {candidateData.resume.parsedData.certifications.map((cert, index) => (
-                          <Badge key={index} variant="outline">
-                            {cert}
-                          </Badge>
-                        ))}
+                        {candidateData.resume.parsedData.certifications.map((cert, index) => {
+                          const certName = typeof cert === 'string' ? cert : (cert?.name || '');
+                          if (!certName) return null;
+                          return (
+                            <Badge key={index} variant="outline">
+                              {certName}
+                            </Badge>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -680,11 +688,15 @@ export default function CandidateProfile({ params }) {
                         <h4 className="text-sm font-medium">Languages</h4>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {candidateData.resume.parsedData.languages.map((lang, index) => (
-                          <Badge key={index} variant="outline">
-                            {lang}
-                          </Badge>
-                        ))}
+                        {candidateData.resume.parsedData.languages.map((lang, index) => {
+                          const langName = typeof lang === 'string' ? lang : (lang?.name || '');
+                          if (!langName) return null;
+                          return (
+                            <Badge key={index} variant="outline">
+                              {langName}
+                            </Badge>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
